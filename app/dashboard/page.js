@@ -1,12 +1,28 @@
+"use client";
+
+import { useState, useEffect } from "react";
 import Card from "../components/Card";
 
 export default function Dashboard() {
+  const [greeting, setGreeting] = useState("");
+
+  useEffect(() => {
+    const hour = new Date().getHours();
+    if (hour < 12) {
+      setGreeting("Good morning");
+    } else if (hour < 18) {
+      setGreeting("Good afternoon");
+    } else {
+      setGreeting("Good evening");
+    }
+  }, []);
+
   return (
     <main className="min-h-screen bg-slate-950 p-8">
       <div className="max-w-6xl mx-auto">
 
         <h1 className="text-2xl font-bold text-white mb-8">
-          Good evening, Mohammad 👋
+          {greeting}, Mohammad 👋
         </h1>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
