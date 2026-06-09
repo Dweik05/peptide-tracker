@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Card from "../components/Card";
+import Card from "../../components/Card";
 
 export default function Dashboard() {
   const [greeting, setGreeting] = useState("");
