@@ -84,12 +84,14 @@ export default function Progress() {
 
           <div className="mb-6">
             <label className="text-slate-400 text-sm mb-1 block">Date</label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-700 focus:outline-none focus:border-emerald-500"
-            />
+           <input
+  type="date"
+  value={date}
+  max={today}
+  onChange={(e) => setDate(e.target.value)}
+  className="w-full bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-700 focus:outline-none focus:border-emerald-500"
+/>
+
           </div>
 
           <button
