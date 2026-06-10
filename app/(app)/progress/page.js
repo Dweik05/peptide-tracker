@@ -3,16 +3,21 @@
 // ============================================================
 // PROGRESS PAGE  —  goes in:  app/(app)/progress/page.js
 //
-// Day 11, Step 2: adds the WEIGHT-OVER-TIME LINE CHART
-// (Recharts) with date-range filters: 7 days / 30 days /
-// 3 months / all time.
+// Day 11, Step 3.5 — layout rework based on your feedback:
 //
-// Everything from Step 1 is still here, unchanged:
-//   - weight logging saved to Supabase (weight_logs)
-//   - lbs / kg / st toggle, "0.0" placeholders, max={today}
-//   - summary cards, per-entry change arrows, delete button
+//   1. Body measurements is now OPTIONAL — collapsed into a
+//      single header you click to open, so it stays out of the
+//      way unless you want it
+//   2. "How do I measure?" guide inside the measurements card
+//      with instructions for all five spots
+//   3. SIDE BY SIDE on desktop: weight section on the left,
+//      measurements on the right (stacks on phones)
+//   4. Weight history + Measurement history are now drop-downs —
+//      click the header to open/close. They auto-open right
+//      after you save an entry so you see it land.
 //
-// Requires the recharts package:  npm install recharts
+// All saving/loading logic from Steps 1–3 is unchanged.
+// No new packages, no new SQL — just replace the file.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -29,6 +34,7 @@ import {
 } from "recharts";
 
 const UNITS = ["lbs", "kg", "st"];
+const MEASUREMENT_UNITS = ["in", "cm"];
 
 // The four chart range buttons
 const RANGES = [
@@ -36,6 +42,39 @@ const RANGES = [
   { key: "30d", label: "30 days" },
   { key: "3m", label: "3 months" },
   { key: "all", label: "All time" },
+];
+
+// The five body measurements (key = column name in the database)
+const MEASUREMENT_FIELDS = [
+  { key: "waist", label: "Waist" },
+  { key: "hips", label: "Hips" },
+  { key: "chest", label: "Chest" },
+  { key: "arms", label: "Arms" },
+  { key: "thighs", label: "Thighs" },
+];
+
+// Shown inside the "How do I measure?" panel
+const MEASURE_GUIDE = [
+  {
+    label: "Waist",
+    how: "Wrap the tape level with your belly button after breathing out normally. Don't suck in.",
+  },
+  {
+    label: "Hips",
+    how: "Around the widest part of your hips and glutes, with your feet together.",
+  },
+  {
+    label: "Chest",
+    how: "Around the fullest part of your chest, tape level all the way around, arms relaxed at your sides.",
+  },
+  {
+    label: "Arms",
+    how: "Around the widest part of your upper arm with the arm relaxed. Use the same arm every time.",
+  },
+  {
+    label: "Thighs",
+    how: "Around the widest part of your upper thigh. Use the same leg every time.",
+  },
 ];
 
 // ---------------- helper functions ----------------
@@ -51,18 +90,27 @@ function getTodayString() {
   return `${year}-${month}-${day}`;
 }
 
-// Convert any weight into lbs so entries can be compared
-// even if one was logged in kg and another in lbs or st.
+// ----- weight unit conversion (lbs / kg / st) -----
 function toLbs(value, unit) {
   if (unit === "kg") return value * 2.20462;
   if (unit === "st") return value * 14;
   return value; // already lbs
 }
 
-// Convert a lbs value back into whichever unit we're displaying.
 function fromLbs(value, unit) {
   if (unit === "kg") return value / 2.20462;
   if (unit === "st") return value / 14;
+  return value;
+}
+
+// ----- measurement unit conversion (in / cm) -----
+function toInches(value, unit) {
+  if (unit === "cm") return value / 2.54;
+  return value; // already inches
+}
+
+function fromInches(value, unit) {
+  if (unit === "cm") return value * 2.54;
   return value;
 }
 
@@ -97,6 +145,15 @@ function getCutoffDate(rangeKey) {
 const inputClasses =
   "w-full bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-700 focus:border-emerald-500 focus:outline-none placeholder:text-slate-500";
 
+// Empty state for the measurements form
+const EMPTY_MEASUREMENTS = {
+  waist: "",
+  hips: "",
+  chest: "",
+  arms: "",
+  thighs: "",
+};
+
 export default function ProgressPage() {
   const router = useRouter();
   const today = getTodayString();
@@ -107,19 +164,35 @@ export default function ProgressPage() {
   const [logs, setLogs] = useState([]); // weight history, newest first
   const [range, setRange] = useState("30d"); // selected chart range
 
-  // form fields
+  // weight form fields
   const [unit, setUnit] = useState("lbs");
   const [weight, setWeight] = useState("");
   const [bodyFat, setBodyFat] = useState("");
   const [date, setDate] = useState(getTodayString());
   const [notes, setNotes] = useState("");
 
-  // ui feedback
+  // weight ui feedback
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // ---------- load session + history when the page opens ----------
+  // ----- body measurements -----
+  const [measurements, setMeasurements] = useState([]); // history, newest first
+  const [mUnit, setMUnit] = useState("in");
+  const [mValues, setMValues] = useState(EMPTY_MEASUREMENTS);
+  const [mDate, setMDate] = useState(getTodayString());
+  const [mNotes, setMNotes] = useState("");
+  const [mSaving, setMSaving] = useState(false);
+  const [mError, setMError] = useState("");
+  const [mSuccess, setMSuccess] = useState("");
+
+  // ----- which sections are open (new in Step 3.5) -----
+  const [showMeasurementsForm, setShowMeasurementsForm] = useState(false);
+  const [showMeasureGuide, setShowMeasureGuide] = useState(false);
+  const [showWeightHistory, setShowWeightHistory] = useState(false);
+  const [showMeasurementHistory, setShowMeasurementHistory] = useState(false);
+
+  // ---------- load session + data when the page opens ----------
   useEffect(() => {
     async function init() {
       const {
@@ -133,6 +206,7 @@ export default function ProgressPage() {
 
       setUserId(session.user.id);
       await fetchLogs(session.user.id);
+      await fetchMeasurements(session.user.id);
       setLoading(false);
     }
     init();
@@ -158,7 +232,26 @@ export default function ProgressPage() {
     }
   }
 
-  // ---------- save a new entry ----------
+  // ---------- fetch this user's measurement history ----------
+  async function fetchMeasurements(uid) {
+    const { data, error: fetchError } = await supabase
+      .from("body_measurements")
+      .select("*")
+      .eq("user_id", uid)
+      .order("logged_at", { ascending: false });
+
+    if (fetchError) {
+      setMError(
+        `Couldn't load measurements: ${fetchError.message} | Code: ${
+          fetchError.code || "?"
+        }`
+      );
+    } else {
+      setMeasurements(data || []);
+    }
+  }
+
+  // ---------- save a new weight entry ----------
   async function handleSave() {
     setError("");
     setSuccess("");
@@ -205,17 +298,82 @@ export default function ProgressPage() {
       return;
     }
 
-    // success: clear the form, reload history, show a banner briefly
+    // success: clear the form, reload + open the history, brief banner
     setSuccess("Weight saved!");
     setWeight("");
     setBodyFat("");
     setNotes("");
     setDate(getTodayString());
     fetchLogs(userId);
+    setShowWeightHistory(true); // so you see the new entry land
     setTimeout(() => setSuccess(""), 4000);
   }
 
-  // ---------- delete an entry ----------
+  // ---------- save a new measurements entry ----------
+  async function handleSaveMeasurements() {
+    setMError("");
+    setMSuccess("");
+
+    // Build the row: filled fields become numbers, blanks become null
+    const row = {};
+    let filledCount = 0;
+
+    for (const field of MEASUREMENT_FIELDS) {
+      const raw = mValues[field.key];
+      if (raw === "") {
+        row[field.key] = null;
+      } else {
+        const number = parseFloat(raw);
+        if (isNaN(number) || number <= 0) {
+          setMError(
+            `${field.label} must be a number above 0 (or leave it blank).`
+          );
+          return;
+        }
+        row[field.key] = number;
+        filledCount = filledCount + 1;
+      }
+    }
+
+    if (filledCount === 0) {
+      setMError("Enter at least one measurement.");
+      return;
+    }
+
+    if (!mDate || mDate > today) {
+      setMError("Please pick today's date or an earlier one.");
+      return;
+    }
+
+    setMSaving(true);
+
+    const { error: insertError } = await supabase
+      .from("body_measurements")
+      .insert({
+        user_id: userId,
+        ...row,
+        unit: mUnit,
+        notes: mNotes.trim() === "" ? null : mNotes.trim(),
+        logged_at: new Date(`${mDate}T12:00:00`).toISOString(),
+      });
+
+    setMSaving(false);
+
+    if (insertError) {
+      setMError(`${insertError.message} | Code: ${insertError.code || "?"}`);
+      return;
+    }
+
+    setMSuccess("Measurements saved!");
+    setMValues(EMPTY_MEASUREMENTS);
+    setMNotes("");
+    setMDate(getTodayString());
+    fetchMeasurements(userId);
+    setShowMeasurementHistory(true); // so you see the new entry land
+    setTimeout(() => setMSuccess(""), 4000);
+  }
+
+  // ---------- delete a weight entry ----------
   async function handleDelete(id) {
     const sure = window.confirm("Delete this weight entry?");
     if (!sure) return;
@@ -236,6 +394,36 @@ export default function ProgressPage() {
     } else {
       setLogs((previous) => previous.filter((log) => log.id !== id));
     }
+  }
+
+  // ---------- delete a measurements entry ----------
+  async function handleDeleteMeasurement(id) {
+    const sure = window.confirm("Delete this measurements entry?");
+    if (!sure) return;
+
+    setMError("");
+    const { error: deleteError } = await supabase
+      .from("body_measurements")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", userId);
+
+    if (deleteError) {
+      setMError(
+        `Couldn't delete entry: ${deleteError.message} | Code: ${
+          deleteError.code || "?"
+        }`
+      );
+    } else {
+      setMeasurements((previous) =>
+        previous.filter((entry) => entry.id !== id)
+      );
+    }
+  }
+
+  // ---------- handle typing in the measurement inputs ----------
+  function handleMeasurementChange(key, value) {
+    setMValues((previous) => ({ ...previous, [key]: value }));
   }
 
   // ---------- summary numbers (computed from logs) ----------
@@ -260,6 +448,27 @@ export default function ProgressPage() {
       toLbs(parseFloat(current.weight), current.unit) -
       toLbs(parseFloat(previous.weight), previous.unit);
     return fromLbs(differenceInLbs, current.unit);
+  }
+
+  // Trend for one measurement: compares against the most recent OLDER
+  // entry that actually has that measurement filled in (entries can
+  // have blanks, so "the previous entry" isn't always enough).
+  function measurementDeltaForRow(index, fieldKey) {
+    const current = measurements[index];
+    const currentValue = current[fieldKey];
+    if (currentValue === null || currentValue === undefined) return null;
+
+    for (let i = index + 1; i < measurements.length; i++) {
+      const older = measurements[i];
+      const olderValue = older[fieldKey];
+      if (olderValue !== null && olderValue !== undefined) {
+        const differenceInInches =
+          toInches(parseFloat(currentValue), current.unit) -
+          toInches(parseFloat(olderValue), older.unit);
+        return fromInches(differenceInInches, current.unit);
+      }
+    }
+    return null; // nothing older to compare against
   }
 
   // ---------- chart data ----------
@@ -292,7 +501,7 @@ export default function ProgressPage() {
   return (
     // If this page looks "double padded" compared to your dashboard,
     // your layout.js already adds padding — change p-8 below to p-0.
-    <div className="p-8 max-w-5xl space-y-6">
+    <div className="p-8 max-w-6xl space-y-6">
       {/* ---------- header ---------- */}
       <div>
         <h1 className="text-2xl font-bold text-white">Progress</h1>
@@ -300,18 +509,6 @@ export default function ProgressPage() {
           Log your weight and watch the trend over time.
         </p>
       </div>
-
-      {/* ---------- error / success banners ---------- */}
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg px-4 py-3 text-sm">
-          {error}
-        </div>
-      )}
-      {success && (
-        <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg px-4 py-3 text-sm">
-          {success}
-        </div>
-      )}
 
       {/* ---------- summary cards (only once there's data) ---------- */}
       {newest && (
@@ -352,7 +549,7 @@ export default function ProgressPage() {
         </div>
       )}
 
-      {/* ---------- weight-over-time chart (new in Step 2) ---------- */}
+      {/* ---------- weight-over-time chart ---------- */}
       {newest && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -437,165 +634,451 @@ export default function ProgressPage() {
         </div>
       )}
 
-      {/* ---------- log form ---------- */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Log weight</h2>
+      {/* ================================================
+          SIDE-BY-SIDE: weight (left) | measurements (right)
+          Stacks into one column on phones.
+          ================================================ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        {/* ---------- LEFT COLUMN: weight ---------- */}
+        <div className="space-y-6">
+          {/* log weight form */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+            <h2 className="text-lg font-semibold text-white mb-4">
+              Log weight
+            </h2>
 
-        {/* unit toggle */}
-        <div className="flex gap-2 mb-4">
-          {UNITS.map((unitOption) => (
-            <button
-              key={unitOption}
-              type="button"
-              onClick={() => setUnit(unitOption)}
-              className={
-                unitOption === unit
-                  ? "px-4 py-2 rounded-lg bg-emerald-500 text-white font-semibold"
-                  : "px-4 py-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700"
-              }
-            >
-              {unitOption}
-            </button>
-          ))}
-        </div>
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg px-4 py-3 text-sm mb-4">
+                {error}
+              </div>
+            )}
+            {success && (
+              <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg px-4 py-3 text-sm mb-4">
+                {success}
+              </div>
+            )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm text-slate-400 mb-1">
-              Weight ({unit})
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              placeholder="0.0"
-              value={weight}
-              onChange={(event) => setWeight(event.target.value)}
-              className={inputClasses}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm text-slate-400 mb-1">
-              Body fat % <span className="text-slate-500">(optional)</span>
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              max="100"
-              placeholder="e.g. 24.5"
-              value={bodyFat}
-              onChange={(event) => setBodyFat(event.target.value)}
-              className={inputClasses}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm text-slate-400 mb-1">Date</label>
-            <input
-              type="date"
-              value={date}
-              max={today}
-              onChange={(event) => setDate(event.target.value)}
-              className={`${inputClasses} [color-scheme:dark]`}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm text-slate-400 mb-1">
-              Notes <span className="text-slate-500">(optional)</span>
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. morning weigh-in"
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-              className={inputClasses}
-            />
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className="mt-5 w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-8 py-3 rounded-lg disabled:opacity-50"
-        >
-          {saving ? "Saving..." : "Save entry"}
-        </button>
-      </div>
-
-      {/* ---------- weight history ---------- */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">
-          Weight history
-        </h2>
-
-        {logs.length === 0 ? (
-          <p className="text-slate-500">
-            No entries yet — log your first weight above and it will show up
-            here.
-          </p>
-        ) : (
-          <ul className="divide-y divide-slate-800">
-            {logs.map((log, index) => {
-              const delta = deltaForRow(index);
-              return (
-                <li
-                  key={log.id}
-                  className="py-3 flex items-center justify-between gap-4"
+            {/* unit toggle */}
+            <div className="flex gap-2 mb-4">
+              {UNITS.map((unitOption) => (
+                <button
+                  key={unitOption}
+                  type="button"
+                  onClick={() => setUnit(unitOption)}
+                  className={
+                    unitOption === unit
+                      ? "px-4 py-2 rounded-lg bg-emerald-500 text-white font-semibold"
+                      : "px-4 py-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700"
+                  }
                 >
-                  <div>
-                    <p className="text-white font-semibold">
-                      {parseFloat(log.weight).toFixed(1)} {log.unit}
-                      {log.body_fat_percentage !== null &&
-                        log.body_fat_percentage !== undefined && (
-                          <span className="text-slate-400 font-normal text-sm">
-                            {" "}
-                            · {parseFloat(log.body_fat_percentage).toFixed(1)}%
-                            body fat
-                          </span>
-                        )}
-                    </p>
-                    <p className="text-sm text-slate-500">
-                      {formatDate(log.logged_at)}
-                      {log.notes ? ` — ${log.notes}` : ""}
-                    </p>
-                  </div>
+                  {unitOption}
+                </button>
+              ))}
+            </div>
 
-                  <div className="flex items-center gap-4">
-                    {delta !== null && (
-                      <span
-                        className={
-                          delta <= -0.05
-                            ? "text-emerald-400 text-sm font-medium"
-                            : delta >= 0.05
-                            ? "text-slate-400 text-sm font-medium"
-                            : "text-slate-500 text-sm"
-                        }
-                      >
-                        {delta <= -0.05
-                          ? `↓ ${Math.abs(delta).toFixed(1)}`
-                          : delta >= 0.05
-                          ? `↑ ${delta.toFixed(1)}`
-                          : "—"}
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(log.id)}
-                      className="text-slate-500 hover:text-red-400 text-sm"
-                      title="Delete entry"
-                    >
-                      ✕
-                    </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">
+                  Weight ({unit})
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  placeholder="0.0"
+                  value={weight}
+                  onChange={(event) => setWeight(event.target.value)}
+                  className={inputClasses}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">
+                  Body fat %{" "}
+                  <span className="text-slate-500">(optional)</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  placeholder="e.g. 24.5"
+                  value={bodyFat}
+                  onChange={(event) => setBodyFat(event.target.value)}
+                  className={inputClasses}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">
+                  Date
+                </label>
+                <input
+                  type="date"
+                  value={date}
+                  max={today}
+                  onChange={(event) => setDate(event.target.value)}
+                  className={`${inputClasses} [color-scheme:dark]`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">
+                  Notes <span className="text-slate-500">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. morning weigh-in"
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  className={inputClasses}
+                />
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="mt-5 w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-8 py-3 rounded-lg disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save entry"}
+            </button>
+          </div>
+
+          {/* weight history — drop-down */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+            <button
+              type="button"
+              onClick={() => setShowWeightHistory((previous) => !previous)}
+              aria-expanded={showWeightHistory}
+              className="w-full flex items-center justify-between text-left"
+            >
+              <h2 className="text-lg font-semibold text-white">
+                Weight history{" "}
+                <span className="text-sm font-normal text-slate-500">
+                  ({logs.length})
+                </span>
+              </h2>
+              <span className="text-slate-400">
+                {showWeightHistory ? "▾" : "▸"}
+              </span>
+            </button>
+
+            {showWeightHistory && (
+              <div className="mt-4">
+                {logs.length === 0 ? (
+                  <p className="text-slate-500">
+                    No entries yet — log your first weight and it will show up
+                    here.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-800">
+                    {logs.map((log, index) => {
+                      const delta = deltaForRow(index);
+                      return (
+                        <li
+                          key={log.id}
+                          className="py-3 flex items-center justify-between gap-4"
+                        >
+                          <div>
+                            <p className="text-white font-semibold">
+                              {parseFloat(log.weight).toFixed(1)} {log.unit}
+                              {log.body_fat_percentage !== null &&
+                                log.body_fat_percentage !== undefined && (
+                                  <span className="text-slate-400 font-normal text-sm">
+                                    {" "}
+                                    ·{" "}
+                                    {parseFloat(
+                                      log.body_fat_percentage
+                                    ).toFixed(1)}
+                                    % body fat
+                                  </span>
+                                )}
+                            </p>
+                            <p className="text-sm text-slate-500">
+                              {formatDate(log.logged_at)}
+                              {log.notes ? ` — ${log.notes}` : ""}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-4">
+                            {delta !== null && (
+                              <span
+                                className={
+                                  delta <= -0.05
+                                    ? "text-emerald-400 text-sm font-medium"
+                                    : delta >= 0.05
+                                    ? "text-slate-400 text-sm font-medium"
+                                    : "text-slate-500 text-sm"
+                                }
+                              >
+                                {delta <= -0.05
+                                  ? `↓ ${Math.abs(delta).toFixed(1)}`
+                                  : delta >= 0.05
+                                  ? `↑ ${delta.toFixed(1)}`
+                                  : "—"}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(log.id)}
+                              className="text-slate-500 hover:text-red-400 text-sm"
+                              title="Delete entry"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ---------- RIGHT COLUMN: body measurements ---------- */}
+        <div className="space-y-6">
+          {/* measurements form — optional, opens on click */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+            <button
+              type="button"
+              onClick={() => setShowMeasurementsForm((previous) => !previous)}
+              aria-expanded={showMeasurementsForm}
+              className="w-full flex items-center justify-between text-left"
+            >
+              <div>
+                <h2 className="text-lg font-semibold text-white">
+                  Body measurements
+                </h2>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Optional — waist, hips, chest, arms, thighs
+                </p>
+              </div>
+              <span className="text-slate-400">
+                {showMeasurementsForm ? "▾" : "▸"}
+              </span>
+            </button>
+
+            {/* banners sit outside the fold so errors are never hidden */}
+            {mError && (
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg px-4 py-3 text-sm mt-4">
+                {mError}
+              </div>
+            )}
+            {mSuccess && (
+              <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg px-4 py-3 text-sm mt-4">
+                {mSuccess}
+              </div>
+            )}
+
+            {showMeasurementsForm && (
+              <div className="mt-4">
+                {/* how-to-measure guide */}
+                <button
+                  type="button"
+                  onClick={() => setShowMeasureGuide((previous) => !previous)}
+                  className="text-sm text-emerald-400 hover:text-emerald-300"
+                >
+                  {showMeasureGuide
+                    ? "▾ How do I measure?"
+                    : "▸ How do I measure?"}
+                </button>
+
+                {showMeasureGuide && (
+                  <div className="bg-slate-800/50 rounded-lg p-4 mt-3 space-y-2">
+                    {MEASURE_GUIDE.map((item) => (
+                      <p key={item.label} className="text-sm">
+                        <span className="text-white font-medium">
+                          {item.label}:
+                        </span>{" "}
+                        <span className="text-slate-400">{item.how}</span>
+                      </p>
+                    ))}
+                    <p className="text-sm text-slate-500 pt-1">
+                      Tips: use a soft tape measure on bare skin, keep it snug
+                      but not digging in, and measure at the same time of day
+                      (mornings are most consistent). Consistency matters more
+                      than precision.
+                    </p>
                   </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+                )}
+
+                {/* in / cm toggle */}
+                <div className="flex gap-2 mt-4 mb-4">
+                  {MEASUREMENT_UNITS.map((unitOption) => (
+                    <button
+                      key={unitOption}
+                      type="button"
+                      onClick={() => setMUnit(unitOption)}
+                      className={
+                        unitOption === mUnit
+                          ? "px-4 py-2 rounded-lg bg-emerald-500 text-white font-semibold"
+                          : "px-4 py-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700"
+                      }
+                    >
+                      {unitOption}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  {MEASUREMENT_FIELDS.map((field) => (
+                    <div key={field.key}>
+                      <label className="block text-sm text-slate-400 mb-1">
+                        {field.label} ({mUnit})
+                      </label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        placeholder="0.0"
+                        value={mValues[field.key]}
+                        onChange={(event) =>
+                          handleMeasurementChange(
+                            field.key,
+                            event.target.value
+                          )
+                        }
+                        className={inputClasses}
+                      />
+                    </div>
+                  ))}
+
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">
+                      Date
+                    </label>
+                    <input
+                      type="date"
+                      value={mDate}
+                      max={today}
+                      onChange={(event) => setMDate(event.target.value)}
+                      className={`${inputClasses} [color-scheme:dark]`}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <label className="block text-sm text-slate-400 mb-1">
+                    Notes <span className="text-slate-500">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. measured after workout"
+                    value={mNotes}
+                    onChange={(event) => setMNotes(event.target.value)}
+                    className={inputClasses}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSaveMeasurements}
+                  disabled={mSaving}
+                  className="mt-5 w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-8 py-3 rounded-lg disabled:opacity-50"
+                >
+                  {mSaving ? "Saving..." : "Save measurements"}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* measurement history — drop-down */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+            <button
+              type="button"
+              onClick={() =>
+                setShowMeasurementHistory((previous) => !previous)
+              }
+              aria-expanded={showMeasurementHistory}
+              className="w-full flex items-center justify-between text-left"
+            >
+              <h2 className="text-lg font-semibold text-white">
+                Measurement history{" "}
+                <span className="text-sm font-normal text-slate-500">
+                  ({measurements.length})
+                </span>
+              </h2>
+              <span className="text-slate-400">
+                {showMeasurementHistory ? "▾" : "▸"}
+              </span>
+            </button>
+
+            {showMeasurementHistory && (
+              <div className="mt-4">
+                {measurements.length === 0 ? (
+                  <p className="text-slate-500">
+                    No measurements yet — log your first set and it will show
+                    up here.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-800">
+                    {measurements.map((entry, index) => (
+                      <li key={entry.id} className="py-3">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm text-slate-500">
+                              {formatDate(entry.logged_at)}
+                              {entry.notes ? ` — ${entry.notes}` : ""}
+                            </p>
+
+                            <div className="flex flex-wrap gap-x-5 gap-y-1 mt-1">
+                              {MEASUREMENT_FIELDS.map((field) => {
+                                const value = entry[field.key];
+                                if (value === null || value === undefined) {
+                                  return null;
+                                }
+                                const delta = measurementDeltaForRow(
+                                  index,
+                                  field.key
+                                );
+                                return (
+                                  <span key={field.key} className="text-sm">
+                                    <span className="text-slate-500">
+                                      {field.label}{" "}
+                                    </span>
+                                    <span className="text-white font-semibold">
+                                      {parseFloat(value).toFixed(1)}{" "}
+                                      {entry.unit}
+                                    </span>
+                                    {delta !== null && delta <= -0.05 && (
+                                      <span className="text-emerald-400 font-medium">
+                                        {" "}
+                                        ↓{Math.abs(delta).toFixed(1)}
+                                      </span>
+                                    )}
+                                    {delta !== null && delta >= 0.05 && (
+                                      <span className="text-slate-400 font-medium">
+                                        {" "}
+                                        ↑{delta.toFixed(1)}
+                                      </span>
+                                    )}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteMeasurement(entry.id)}
+                            className="text-slate-500 hover:text-red-400 text-sm"
+                            title="Delete entry"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
