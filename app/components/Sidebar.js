@@ -8,6 +8,7 @@ const links = [
   { href: "/dashboard", label: "Dashboard", icon: "🏠" },
   { href: "/log", label: "Log Dose", icon: "💉" },
   { href: "/progress", label: "Progress", icon: "📊" },
+  { href: "/gym", label: "Gym PRs", icon: "🏋️" },
   { href: "/inventory", label: "Inventory", icon: "📦" },
   { href: "/side-effects", label: "Side Effects", icon: "⚠️" },
   { href: "/peptides", label: "Peptide Encyclopedia", icon: "📚" },

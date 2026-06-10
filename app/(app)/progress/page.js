@@ -3,24 +3,20 @@
 // ============================================================
 // PROGRESS PAGE  —  goes in:  app/(app)/progress/page.js
 //
-// Day 11, Step 3.5 — layout rework based on your feedback:
+// Day 11, Step 4.1 — layout tweak from your feedback:
+// the "Progress photos" card has MOVED from the bottom of the
+// page up into the RIGHT COLUMN, sitting under Body
+// measurements and Measurement history, in the same
+// drop-down style. Photo grid is now 2 columns to fit the
+// narrower column. On phones everything still stacks into
+// one column in order: weight form → weight history →
+// measurements → measurement history → photos.
 //
-//   1. Body measurements is now OPTIONAL — collapsed into a
-//      single header you click to open, so it stays out of the
-//      way unless you want it
-//   2. "How do I measure?" guide inside the measurements card
-//      with instructions for all five spots
-//   3. SIDE BY SIDE on desktop: weight section on the left,
-//      measurements on the right (stacks on phones)
-//   4. Weight history + Measurement history are now drop-downs —
-//      click the header to open/close. They auto-open right
-//      after you save an entry so you see it land.
-//
-// All saving/loading logic from Steps 1–3 is unchanged.
-// No new packages, no new SQL — just replace the file.
+// Nothing else changed — all saving/loading from Steps 1–4
+// is identical.
 // ============================================================
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import {
@@ -35,6 +31,10 @@ import {
 
 const UNITS = ["lbs", "kg", "st"];
 const MEASUREMENT_UNITS = ["in", "cm"];
+
+// Photo upload rules
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const MAX_PHOTO_SIZE_MB = 10;
 
 // The four chart range buttons
 const RANGES = [
@@ -186,11 +186,23 @@ export default function ProgressPage() {
   const [mError, setMError] = useState("");
   const [mSuccess, setMSuccess] = useState("");
 
-  // ----- which sections are open (new in Step 3.5) -----
+  // ----- progress photos -----
+  const [photos, setPhotos] = useState([]); // rows + temporary view URLs
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState("");
+  const [photoCaption, setPhotoCaption] = useState("");
+  const [photoDate, setPhotoDate] = useState(getTodayString());
+  const [uploading, setUploading] = useState(false);
+  const [pError, setPError] = useState("");
+  const [pSuccess, setPSuccess] = useState("");
+  const photoInputRef = useRef(null); // lets us clear the file picker
+
+  // ----- which sections are open -----
   const [showMeasurementsForm, setShowMeasurementsForm] = useState(false);
   const [showMeasureGuide, setShowMeasureGuide] = useState(false);
   const [showWeightHistory, setShowWeightHistory] = useState(false);
   const [showMeasurementHistory, setShowMeasurementHistory] = useState(false);
+  const [showPhotos, setShowPhotos] = useState(false);
 
   // ---------- load session + data when the page opens ----------
   useEffect(() => {
@@ -207,6 +219,7 @@ export default function ProgressPage() {
       setUserId(session.user.id);
       await fetchLogs(session.user.id);
       await fetchMeasurements(session.user.id);
+      await fetchPhotos(session.user.id);
       setLoading(false);
     }
     init();
@@ -249,6 +262,48 @@ export default function ProgressPage() {
     } else {
       setMeasurements(data || []);
     }
+  }
+
+  // ---------- fetch this user's photos ----------
+  async function fetchPhotos(uid) {
+    const { data, error: fetchError } = await supabase
+      .from("progress_photos")
+      .select("*")
+      .eq("user_id", uid)
+      .order("taken_at", { ascending: false });
+
+    if (fetchError) {
+      setPError(
+        `Couldn't load photos: ${fetchError.message} | Code: ${
+          fetchError.code || "?"
+        }`
+      );
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      setPhotos([]);
+      return;
+    }
+
+    // The bucket is private, so we ask Supabase for temporary
+    // viewing links (valid for 1 hour) for all photos at once.
+    const paths = data.map((photo) => photo.storage_path);
+    const { data: signed, error: signError } = await supabase.storage
+      .from("progress-photos")
+      .createSignedUrls(paths, 3600);
+
+    if (signError) {
+      setPError(`Couldn't create photo links: ${signError.message}`);
+      setPhotos(data.map((photo) => ({ ...photo, url: "" })));
+      return;
+    }
+
+    const withUrls = data.map((photo, index) => ({
+      ...photo,
+      url: signed && signed[index] ? signed[index].signedUrl : "",
+    }));
+    setPhotos(withUrls);
   }
 
   // ---------- save a new weight entry ----------
@@ -371,6 +426,154 @@ export default function ProgressPage() {
     fetchMeasurements(userId);
     setShowMeasurementHistory(true); // so you see the new entry land
     setTimeout(() => setMSuccess(""), 4000);
+  }
+
+  // ---------- choose a photo file ----------
+  function handleFileChange(event) {
+    setPError("");
+    const file =
+      event.target.files && event.target.files.length > 0
+        ? event.target.files[0]
+        : null;
+
+    if (!file) {
+      setPhotoFile(null);
+      setPhotoPreview("");
+      return;
+    }
+
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setPError(
+        "Please choose a JPG, PNG, or WebP image. (iPhone HEIC photos need to be saved as JPG first.)"
+      );
+      if (photoInputRef.current) photoInputRef.current.value = "";
+      return;
+    }
+
+    if (file.size > MAX_PHOTO_SIZE_MB * 1024 * 1024) {
+      setPError(
+        `That image is over ${MAX_PHOTO_SIZE_MB} MB — please choose a smaller one.`
+      );
+      if (photoInputRef.current) photoInputRef.current.value = "";
+      return;
+    }
+
+    // show a preview before uploading
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
+  }
+
+  // ---------- upload a photo ----------
+  async function handleUploadPhoto() {
+    setPError("");
+    setPSuccess("");
+
+    if (!photoFile) {
+      setPError("Choose a photo first.");
+      return;
+    }
+
+    if (!photoDate || photoDate > today) {
+      setPError("Please pick today's date or an earlier one.");
+      return;
+    }
+
+    setUploading(true);
+
+    // The file goes into a folder named after YOUR user id —
+    // the Storage policies only allow access to your own folder.
+    // Date.now() makes every filename unique.
+    const nameParts = photoFile.name.split(".");
+    const extension =
+      nameParts.length > 1 ? nameParts.pop().toLowerCase() : "jpg";
+    const path = `${userId}/${Date.now()}.${extension}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("progress-photos")
+      .upload(path, photoFile);
+
+    if (uploadError) {
+      setUploading(false);
+      let message = `Upload failed: ${uploadError.message}`;
+      if (
+        uploadError.message &&
+        uploadError.message.toLowerCase().includes("row-level security")
+      ) {
+        message =
+          message +
+          " — this means the Storage policies (Part C) aren't in place yet.";
+      }
+      setPError(message);
+      return;
+    }
+
+    // The image is in Storage — now record it in the database
+    const { error: insertError } = await supabase
+      .from("progress_photos")
+      .insert({
+        user_id: userId,
+        storage_path: path,
+        caption: photoCaption.trim() === "" ? null : photoCaption.trim(),
+        taken_at: new Date(`${photoDate}T12:00:00`).toISOString(),
+      });
+
+    if (insertError) {
+      // Don't leave an orphaned image in Storage if the record failed
+      await supabase.storage.from("progress-photos").remove([path]);
+      setUploading(false);
+      setPError(`${insertError.message} | Code: ${insertError.code || "?"}`);
+      return;
+    }
+
+    setUploading(false);
+    setPSuccess("Photo uploaded!");
+    setPhotoFile(null);
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    setPhotoPreview("");
+    setPhotoCaption("");
+    setPhotoDate(getTodayString());
+    if (photoInputRef.current) photoInputRef.current.value = "";
+    fetchPhotos(userId);
+    setShowPhotos(true); // so you see the new photo land
+    setTimeout(() => setPSuccess(""), 4000);
+  }
+
+  // ---------- delete a photo ----------
+  async function handleDeletePhoto(photo) {
+    const sure = window.confirm("Delete this photo? This can't be undone.");
+    if (!sure) return;
+
+    setPError("");
+
+    // 1) remove the image file from Storage
+    const { error: storageError } = await supabase.storage
+      .from("progress-photos")
+      .remove([photo.storage_path]);
+
+    if (storageError) {
+      setPError(`Couldn't delete the image file: ${storageError.message}`);
+      return;
+    }
+
+    // 2) remove its record from the database
+    const { error: deleteError } = await supabase
+      .from("progress_photos")
+      .delete()
+      .eq("id", photo.id)
+      .eq("user_id", userId);
+
+    if (deleteError) {
+      setPError(
+        `Couldn't delete the photo record: ${deleteError.message} | Code: ${
+          deleteError.code || "?"
+        }`
+      );
+    } else {
+      setPhotos((previous) =>
+        previous.filter((item) => item.id !== photo.id)
+      );
+    }
   }
 
   // ---------- delete a weight entry ----------
@@ -635,7 +838,7 @@ export default function ProgressPage() {
       )}
 
       {/* ================================================
-          SIDE-BY-SIDE: weight (left) | measurements (right)
+          SIDE-BY-SIDE: weight (left) | measurements + photos (right)
           Stacks into one column on phones.
           ================================================ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
@@ -839,7 +1042,7 @@ export default function ProgressPage() {
           </div>
         </div>
 
-        {/* ---------- RIGHT COLUMN: body measurements ---------- */}
+        {/* ---------- RIGHT COLUMN: measurements + photos ---------- */}
         <div className="space-y-6">
           {/* measurements form — optional, opens on click */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
@@ -1074,6 +1277,161 @@ export default function ProgressPage() {
                       </li>
                     ))}
                   </ul>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* progress photos — drop-down (moved up here from the bottom) */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+            <button
+              type="button"
+              onClick={() => setShowPhotos((previous) => !previous)}
+              aria-expanded={showPhotos}
+              className="w-full flex items-center justify-between text-left"
+            >
+              <div>
+                <h2 className="text-lg font-semibold text-white">
+                  Progress photos{" "}
+                  <span className="text-sm font-normal text-slate-500">
+                    ({photos.length})
+                  </span>
+                </h2>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Optional — private before &amp; after timeline, only you can
+                  see these
+                </p>
+              </div>
+              <span className="text-slate-400">{showPhotos ? "▾" : "▸"}</span>
+            </button>
+
+            {/* banners sit outside the fold so errors are never hidden */}
+            {pError && (
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg px-4 py-3 text-sm mt-4">
+                {pError}
+              </div>
+            )}
+            {pSuccess && (
+              <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg px-4 py-3 text-sm mt-4">
+                {pSuccess}
+              </div>
+            )}
+
+            {showPhotos && (
+              <div className="mt-4">
+                {/* upload form */}
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">
+                    Photo{" "}
+                    <span className="text-slate-500">
+                      (JPG, PNG, or WebP — up to {MAX_PHOTO_SIZE_MB} MB)
+                    </span>
+                  </label>
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={handleFileChange}
+                    className="w-full text-sm text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:bg-slate-700 file:text-white file:font-semibold hover:file:bg-slate-600 file:cursor-pointer"
+                  />
+                  {photoPreview && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={photoPreview}
+                      alt="Preview of the selected photo"
+                      className="mt-3 h-32 rounded-lg object-cover border border-slate-700"
+                    />
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mt-4">
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">
+                      Date taken
+                    </label>
+                    <input
+                      type="date"
+                      value={photoDate}
+                      max={today}
+                      onChange={(event) => setPhotoDate(event.target.value)}
+                      className={`${inputClasses} [color-scheme:dark]`}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">
+                      Caption{" "}
+                      <span className="text-slate-500">(optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. week 8"
+                      value={photoCaption}
+                      onChange={(event) =>
+                        setPhotoCaption(event.target.value)
+                      }
+                      className={inputClasses}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleUploadPhoto}
+                  disabled={uploading}
+                  className="mt-5 w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-8 py-3 rounded-lg disabled:opacity-50"
+                >
+                  {uploading ? "Uploading..." : "Upload photo"}
+                </button>
+
+                {/* timeline grid */}
+                {photos.length === 0 ? (
+                  <p className="text-slate-500 mt-6">
+                    No photos yet — upload your first one above. Photos are
+                    private to your account.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-4 mt-6">
+                    {photos.map((photo) => (
+                      <div
+                        key={photo.id}
+                        className="relative bg-slate-800 rounded-lg overflow-hidden border border-slate-700"
+                      >
+                        {photo.url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={photo.url}
+                            alt={photo.caption || "Progress photo"}
+                            className="w-full h-48 object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-48 flex items-center justify-center text-slate-500 text-sm">
+                            Couldn't load image
+                          </div>
+                        )}
+
+                        <div className="p-3">
+                          <p className="text-sm text-white font-medium">
+                            {formatDate(photo.taken_at)}
+                          </p>
+                          {photo.caption && (
+                            <p className="text-sm text-slate-400 mt-0.5">
+                              {photo.caption}
+                            </p>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePhoto(photo)}
+                          className="absolute top-2 right-2 bg-slate-950/70 hover:bg-red-500/80 text-white rounded-lg px-2 py-1 text-sm"
+                          title="Delete photo"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
