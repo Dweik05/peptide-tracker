@@ -3,26 +3,40 @@
 // ============================================================
 // PROGRESS PAGE  —  goes in:  app/(app)/progress/page.js
 //
-// Day 11, Step 1: weight logging now SAVES TO SUPABASE
-// (the weight_logs table) instead of vanishing on refresh.
+// Day 11, Step 2: adds the WEIGHT-OVER-TIME LINE CHART
+// (Recharts) with date-range filters: 7 days / 30 days /
+// 3 months / all time.
 //
-// Kept from the old version:
-//   - lbs / kg / st toggle
-//   - "0.0" style placeholders (never look pre-filled)
-//   - date input capped at today (max={today})
-// New in this version:
-//   - entries persist + weight history loads from the database
-//   - summary cards: current weight, starting weight, total change
-//   - small up/down arrow showing change vs. your previous entry
-//   - optional body fat % and notes (columns already exist)
-//   - delete button (with an "are you sure?" popup)
+// Everything from Step 1 is still here, unchanged:
+//   - weight logging saved to Supabase (weight_logs)
+//   - lbs / kg / st toggle, "0.0" placeholders, max={today}
+//   - summary cards, per-entry change arrows, delete button
+//
+// Requires the recharts package:  npm install recharts
 // ============================================================
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from "recharts";
 
 const UNITS = ["lbs", "kg", "st"];
+
+// The four chart range buttons
+const RANGES = [
+  { key: "7d", label: "7 days" },
+  { key: "30d", label: "30 days" },
+  { key: "3m", label: "3 months" },
+  { key: "all", label: "All time" },
+];
 
 // ---------------- helper functions ----------------
 
@@ -61,6 +75,24 @@ function formatDate(timestamp) {
   });
 }
 
+// Shorter version for the chart's bottom axis, e.g. "Jun 10"
+function formatShortDate(timestamp) {
+  return new Date(timestamp).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+// For a chosen range, returns the earliest date to include
+// (or null, which means "include everything").
+function getCutoffDate(rangeKey) {
+  if (rangeKey === "all") return null;
+  const days = rangeKey === "7d" ? 7 : rangeKey === "30d" ? 30 : 90;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  return cutoff;
+}
+
 // Shared styling for every input on this page (matches the design system)
 const inputClasses =
   "w-full bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-700 focus:border-emerald-500 focus:outline-none placeholder:text-slate-500";
@@ -73,6 +105,7 @@ export default function ProgressPage() {
   const [userId, setUserId] = useState(null);
   const [loading, setLoading] = useState(true); // first page load
   const [logs, setLogs] = useState([]); // weight history, newest first
+  const [range, setRange] = useState("30d"); // selected chart range
 
   // form fields
   const [unit, setUnit] = useState("lbs");
@@ -168,9 +201,7 @@ export default function ProgressPage() {
     setSaving(false);
 
     if (insertError) {
-      setError(
-        `${insertError.message} | Code: ${insertError.code || "?"}`
-      );
+      setError(`${insertError.message} | Code: ${insertError.code || "?"}`);
       return;
     }
 
@@ -230,6 +261,23 @@ export default function ProgressPage() {
       toLbs(parseFloat(previous.weight), previous.unit);
     return fromLbs(differenceInLbs, current.unit);
   }
+
+  // ---------- chart data ----------
+  // The chart shows everything in ONE unit (the newest entry's unit),
+  // so entries logged in different units still draw one smooth line.
+  const chartUnit = newest ? newest.unit : "lbs";
+  const hasMixedUnits = logs.some((log) => log.unit !== chartUnit);
+
+  const cutoff = getCutoffDate(range);
+  const chartData = logs
+    .filter((log) => cutoff === null || new Date(log.logged_at) >= cutoff)
+    .reverse() // oldest first, so the line reads left → right
+    .map((log) => ({
+      label: formatShortDate(log.logged_at),
+      weight: Number(
+        fromLbs(toLbs(parseFloat(log.weight), log.unit), chartUnit).toFixed(1)
+      ),
+    }));
 
   // ---------- page ----------
 
@@ -301,6 +349,91 @@ export default function ProgressPage() {
             </p>
             <p className="text-sm text-slate-500 mt-1">since first entry</p>
           </div>
+        </div>
+      )}
+
+      {/* ---------- weight-over-time chart (new in Step 2) ---------- */}
+      {newest && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <h2 className="text-lg font-semibold text-white">
+              Weight over time
+            </h2>
+
+            {/* range filter buttons */}
+            <div className="flex flex-wrap gap-2">
+              {RANGES.map((rangeOption) => (
+                <button
+                  key={rangeOption.key}
+                  type="button"
+                  onClick={() => setRange(rangeOption.key)}
+                  className={
+                    rangeOption.key === range
+                      ? "px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-sm font-semibold"
+                      : "px-3 py-1.5 rounded-lg bg-slate-800 text-slate-400 text-sm hover:bg-slate-700"
+                  }
+                >
+                  {rangeOption.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {chartData.length === 0 ? (
+            <p className="text-slate-500">
+              No entries in this range yet — try "All time".
+            </p>
+          ) : (
+            <div className="h-72 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={chartData}
+                  margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+                >
+                  <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: "#94a3b8", fontSize: 12 }}
+                    tickLine={false}
+                    axisLine={{ stroke: "#334155" }}
+                    minTickGap={24}
+                  />
+                  <YAxis
+                    domain={["auto", "auto"]}
+                    tick={{ fill: "#94a3b8", fontSize: 12 }}
+                    tickLine={false}
+                    axisLine={{ stroke: "#334155" }}
+                    width={50}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#0f172a",
+                      border: "1px solid #334155",
+                      borderRadius: "8px",
+                    }}
+                    labelStyle={{ color: "#94a3b8" }}
+                    itemStyle={{ color: "#34d399" }}
+                    formatter={(value) => [`${value} ${chartUnit}`, "Weight"]}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="weight"
+                    stroke="#10b981"
+                    strokeWidth={2}
+                    dot={{ r: 3, fill: "#10b981", strokeWidth: 0 }}
+                    activeDot={{ r: 5 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {hasMixedUnits && (
+            <p className="text-sm text-slate-500 mt-3">
+              Shown in {chartUnit} — entries logged in other units are
+              converted automatically.
+            </p>
+          )}
         </div>
       )}
 
