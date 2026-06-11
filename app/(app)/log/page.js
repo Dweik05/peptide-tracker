@@ -3,57 +3,24 @@
 // ============================================================
 // LOG PAGE  —  goes in:  app/(app)/log/page.js
 //
-// Day 12, Step 2 changes (everything else is your original):
+// Day 13 refactor — NO behavior changes. Two things moved to
+// shared files so the dashboard's quick-log modal can reuse
+// them without duplicating code:
 //
-//   1. The PEPTIDES list moved to the shared file
-//      app/lib/peptides.js — this page now imports it
-//   2. AUTO-DEDUCT: after a dose saves, the matching inventory
-//      product loses that amount (oldest vial first if you have
-//      several; mg ↔ mcg converted automatically). The success
-//      banner tells you exactly what was deducted and what's
-//      left, and an amber warning appears when a product drops
-//      to 20% or less.
-//   3. Bug fix: the date/time picker used UTC time, which in
-//      Ontario evenings defaulted to (and allowed) future
-//      times — your "no future dates" rule. Now it uses your
-//      local time.
+//   - Injection site groups  → app/lib/sites.js
+//   - Auto-deduct logic      → app/lib/inventory-helpers.js
+//
+// Everything works exactly as before: peptide dropdown, dose
+// + unit, two-mode site picker with the body diagram, local
+// date/time, auto-deduct with low-stock warnings, recent doses.
 // ============================================================
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
-import { PEPTIDES, UNITS, convertAmount } from "../../lib/peptides";
-
-const INJECTION_SITE_GROUPS = [
-  {
-    group: "Abdomen",
-    sites: ["Upper Left", "Upper Right", "Lower Left", "Lower Right", "Navel Left", "Navel Right"],
-  },
-  {
-    group: "Thigh",
-    sites: ["Upper Left", "Upper Right", "Middle Left", "Middle Right", "Outer Left", "Outer Right"],
-  },
-  {
-    group: "Glute",
-    sites: ["Upper Left", "Upper Right", "Lower Left", "Lower Right"],
-  },
-  {
-    group: "Arm",
-    sites: ["Upper Left (Deltoid)", "Upper Right (Deltoid)", "Lower Left", "Lower Right"],
-  },
-  {
-    group: "Back",
-    sites: ["Lower Left", "Lower Right", "Upper Left", "Upper Right"],
-  },
-  {
-    group: "Chest",
-    sites: ["Left Pectoral", "Right Pectoral"],
-  },
-  {
-    group: "Other",
-    sites: ["Specify below"],
-  },
-];
+import { PEPTIDES, UNITS } from "../../lib/peptides";
+import { INJECTION_SITE_GROUPS } from "../../lib/sites";
+import { deductFromInventory } from "../../lib/inventory-helpers";
 
 const BODY_POINTS = {
   front: [
@@ -96,11 +63,6 @@ function getLocalDateTimeString() {
   const offset = now.getTimezoneOffset();
   const local = new Date(now.getTime() - offset * 60000);
   return local.toISOString().slice(0, 16);
-}
-
-// Turns 0.30000000000000004 into "0.3" for friendly messages.
-function trimNumber(value) {
-  return parseFloat(value.toFixed(4)).toString();
 }
 
 function BodyDiagram({ selectedPoint, onSelectPoint }) {
@@ -238,114 +200,6 @@ export default function Log() {
     if (data) setRecentLogs(data);
   }
 
-  // ============================================================
-  // AUTO-DEDUCT (new in Day 12, Step 2)
-  //
-  // After a dose saves, find this user's inventory products with
-  // the same peptide name (case-insensitive) and subtract the
-  // dose — oldest product first, spilling into the next vial if
-  // the first runs out. Returns a message describing what
-  // happened, plus a warning when something needs attention.
-  // The dose itself is ALWAYS saved — inventory hiccups never
-  // block logging.
-  // ============================================================
-  async function deductFromInventory(userId, name, amount, doseUnit) {
-    const { data: products, error: invError } = await supabase
-      .from("inventory")
-      .select("*")
-      .eq("user_id", userId)
-      .ilike("peptide_name", name)
-      .order("created_at", { ascending: true });
-
-    if (invError) {
-      return {
-        message: "",
-        warning: `Dose saved, but inventory couldn't be checked: ${invError.message}`,
-      };
-    }
-
-    // No matching product at all → stay silent (inventory is optional)
-    if (!products || products.length === 0) {
-      return { message: "", warning: "" };
-    }
-
-    // Keep only products whose unit we can convert this dose into
-    const compatible = products.filter(
-      (product) => convertAmount(1, doseUnit, product.unit) !== null
-    );
-
-    if (compatible.length === 0) {
-      return {
-        message: "",
-        warning: `Heads up: "${name}" is in your inventory in ${products[0].unit}, but this dose is in ${doseUnit} — couldn't auto-deduct.`,
-      };
-    }
-
-    const withStock = compatible.filter(
-      (product) => parseFloat(product.quantity_remaining) > 0
-    );
-
-    if (withStock.length === 0) {
-      return {
-        message: "",
-        warning: `Your "${name}" inventory is empty — dose logged, but there was nothing left to deduct.`,
-      };
-    }
-
-    let leftToDeduct = amount; // tracked in the dose's unit
-    const messages = [];
-    let lowStock = null;
-
-    for (const product of withStock) {
-      if (leftToDeduct <= 0) break;
-
-      const inProductUnit = convertAmount(leftToDeduct, doseUnit, product.unit);
-      const available = parseFloat(product.quantity_remaining);
-      const take = Math.min(inProductUnit, available);
-      const newRemaining = parseFloat(Math.max(0, available - take).toFixed(6));
-
-      const { error: updateError } = await supabase
-        .from("inventory")
-        .update({ quantity_remaining: newRemaining })
-        .eq("id", product.id)
-        .eq("user_id", userId);
-
-      if (updateError) {
-        return {
-          message: messages.join(" "),
-          warning: `Dose saved, but updating inventory failed: ${updateError.message}`,
-        };
-      }
-
-      messages.push(
-        `Deducted ${trimNumber(take)} ${product.unit} from "${product.peptide_name}" — ${trimNumber(newRemaining)} ${product.unit} left.`
-      );
-
-      const total = parseFloat(product.quantity_total);
-      if (total > 0 && (newRemaining / total) * 100 <= 20) {
-        lowStock = {
-          name: product.peptide_name,
-          percent: Math.round((newRemaining / total) * 100),
-        };
-      }
-
-      // reduce what's left to deduct (converted back to dose units)
-      leftToDeduct = leftToDeduct - convertAmount(take, product.unit, doseUnit);
-    }
-
-    let warning = "";
-    if (leftToDeduct > 0.000001) {
-      warning = `Your "${name}" inventory didn't have enough to cover the full dose (${trimNumber(leftToDeduct)} ${doseUnit} uncovered).`;
-    }
-    if (lowStock) {
-      warning =
-        (warning ? warning + " " : "") +
-        `⚠️ Low stock: "${lowStock.name}" is at ${lowStock.percent}% — time to reorder.`;
-    }
-
-    return { message: messages.join(" "), warning };
-  }
-
   function getFinalSite() {
     if (siteMode === "diagram") return diagramSite;
     if (injectionGroup === "Other") return customSite;
@@ -386,7 +240,7 @@ export default function Log() {
     if (error) {
       setError(`Error: ${error.message} | Code: ${error.code}`);
     } else {
-      // dose saved — now auto-deduct from inventory
+      // dose saved — now auto-deduct from inventory (shared helper)
       const deduction = await deductFromInventory(
         session.user.id,
         peptideName,
