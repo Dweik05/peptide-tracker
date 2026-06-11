@@ -1,73 +1,28 @@
 "use client";
 
+// ============================================================
+// LOG PAGE  —  goes in:  app/(app)/log/page.js
+//
+// Day 12, Step 2 changes (everything else is your original):
+//
+//   1. The PEPTIDES list moved to the shared file
+//      app/lib/peptides.js — this page now imports it
+//   2. AUTO-DEDUCT: after a dose saves, the matching inventory
+//      product loses that amount (oldest vial first if you have
+//      several; mg ↔ mcg converted automatically). The success
+//      banner tells you exactly what was deducted and what's
+//      left, and an amber warning appears when a product drops
+//      to 20% or less.
+//   3. Bug fix: the date/time picker used UTC time, which in
+//      Ontario evenings defaulted to (and allowed) future
+//      times — your "no future dates" rule. Now it uses your
+//      local time.
+// ============================================================
+
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
-
-const PEPTIDES = [
-  { short: "ACE", full: "ACE-031" },
-  { short: "AOD", full: "AOD9604" },
-  { short: "AHK", full: "AHK-CU" },
-  { short: "5AM", full: "5-Amino-1MQ" },
-  { short: "BPC", full: "BPC-157" },
-  { short: "BB", full: "BPC-157 + TB-500 Blend" },
-  { short: "BBG", full: "BPC-157 + GHK-CU + TB-500 Blend" },
-  { short: "CJC-nDAC", full: "CJC-1295 without DAC" },
-  { short: "CJC-DAC", full: "CJC-1295 with DAC" },
-  { short: "CGL", full: "Cagrilintide" },
-  { short: "CS", full: "Cagrilintide + Semaglutide Blend" },
-  { short: "CBL", full: "Cerebrolysin" },
-  { short: "DSIP", full: "DSIP" },
-  { short: "ET", full: "Epithalon" },
-  { short: "NET", full: "N-Acetyl Epitalon Amidate" },
-  { short: "F4", full: "FOXO4" },
-  { short: "GHK", full: "GHK-CU" },
-  { short: "GTT", full: "Glutathione" },
-  { short: "GND", full: "Gonadorelin Acetate" },
-  { short: "HCG", full: "HCG" },
-  { short: "HX", full: "Hexarelin Acetate" },
-  { short: "FRG", full: "HGH Fragment 176-191" },
-  { short: "HMG", full: "HMG" },
-  { short: "HU", full: "Humanin" },
-  { short: "HA", full: "Hyaluronic Acid" },
-  { short: "IGF", full: "IGF-1 LR3" },
-  { short: "IPA", full: "Ipamorelin" },
-  { short: "KPV", full: "KPV" },
-  { short: "KP", full: "KisspePtin-10" },
-  { short: "LB", full: "Lemon Bottle" },
-  { short: "LC", full: "L-Carnitine" },
-  { short: "LR", full: "Liraglutide" },
-  { short: "MX", full: "Matrixyl" },
-  { short: "MT1", full: "Melanotan 1" },
-  { short: "MT2", full: "Melanotan 2" },
-  { short: "MT", full: "Melatonin" },
-  { short: "MGF", full: "MGF" },
-  { short: "MOTS", full: "MOTS-c" },
-  { short: "NAD", full: "NAD+" },
-  { short: "NSK", full: "NA Selank Amidate" },
-  { short: "OT", full: "Oxytocin Acetate" },
-  { short: "P21", full: "P21" },
-  { short: "PEG", full: "PEG MGF" },
-  { short: "PIN", full: "Pinealon" },
-  { short: "PNC", full: "PNC-27" },
-  { short: "PT141", full: "PT-141 (Bremelanotide)" },
-  { short: "RC", full: "Retatrutide + Cagrilintide Blend" },
-  { short: "RT", full: "Retatrutide" },
-  { short: "SK", full: "Selank" },
-  { short: "SM", full: "Semaglutide" },
-  { short: "SRM", full: "Sermorelin" },
-  { short: "XS", full: "Semax + Selank Blend" },
-  { short: "2S", full: "Semax" },
-  { short: "SS", full: "SS-31" },
-  { short: "SUR", full: "Survodutide" },
-  { short: "BT", full: "TB-500" },
-  { short: "TER", full: "Teriparatide" },
-  { short: "TSM", full: "Tesamorelin" },
-  { short: "TY", full: "Thymalin" },
-  { short: "TA", full: "Thymosin Alpha-1" },
-  { short: "VIP", full: "VIP" },
-  { short: "OTHER", full: "Other" },
-].sort((a, b) => a.full.localeCompare(b.full));
+import { PEPTIDES, UNITS, convertAmount } from "../../lib/peptides";
 
 const INJECTION_SITE_GROUPS = [
   {
@@ -99,8 +54,6 @@ const INJECTION_SITE_GROUPS = [
     sites: ["Specify below"],
   },
 ];
-
-const UNITS = ["mg", "mcg", "IU", "ml"];
 
 const BODY_POINTS = {
   front: [
@@ -134,6 +87,21 @@ const BODY_POINTS = {
     { id: "arm-lower-right", label: "Arm Lower Right", cx: 255, cy: 220 },
   ],
 };
+
+// Local date+time as "YYYY-MM-DDTHH:MM" for the datetime picker.
+// (toISOString() is UTC — in Ontario evenings that's already
+// "tomorrow", which broke the no-future-dates rule.)
+function getLocalDateTimeString() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset();
+  const local = new Date(now.getTime() - offset * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+// Turns 0.30000000000000004 into "0.3" for friendly messages.
+function trimNumber(value) {
+  return parseFloat(value.toFixed(4)).toString();
+}
 
 function BodyDiagram({ selectedPoint, onSelectPoint }) {
   const [view, setView] = useState("front");
@@ -224,13 +192,14 @@ export default function Log() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [success, setSuccess] = useState(false);
+  const [success, setSuccess] = useState("");
+  const [stockWarning, setStockWarning] = useState("");
   const [error, setError] = useState("");
   const [recentLogs, setRecentLogs] = useState([]);
   const [siteMode, setSiteMode] = useState("dropdown");
   const [sessionDebug, setSessionDebug] = useState("");
 
-  const today = new Date().toISOString().slice(0, 16);
+  const today = getLocalDateTimeString();
   const [peptideName, setPeptideName] = useState("");
   const [doseAmount, setDoseAmount] = useState("");
   const [unit, setUnit] = useState("mg");
@@ -238,7 +207,7 @@ export default function Log() {
   const [injectionGroup, setInjectionGroup] = useState("");
   const [customSite, setCustomSite] = useState("");
   const [diagramSite, setDiagramSite] = useState("");
-  const [loggedAt, setLoggedAt] = useState(today);
+  const [loggedAt, setLoggedAt] = useState(getLocalDateTimeString());
   const [notes, setNotes] = useState("");
 
   const router = useRouter();
@@ -256,6 +225,7 @@ export default function Log() {
       setLoading(false);
     }
     initialize();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function fetchRecentLogs(userId) {
@@ -266,6 +236,114 @@ export default function Log() {
       .order("logged_at", { ascending: false })
       .limit(10);
     if (data) setRecentLogs(data);
+  }
+
+  // ============================================================
+  // AUTO-DEDUCT (new in Day 12, Step 2)
+  //
+  // After a dose saves, find this user's inventory products with
+  // the same peptide name (case-insensitive) and subtract the
+  // dose — oldest product first, spilling into the next vial if
+  // the first runs out. Returns a message describing what
+  // happened, plus a warning when something needs attention.
+  // The dose itself is ALWAYS saved — inventory hiccups never
+  // block logging.
+  // ============================================================
+  async function deductFromInventory(userId, name, amount, doseUnit) {
+    const { data: products, error: invError } = await supabase
+      .from("inventory")
+      .select("*")
+      .eq("user_id", userId)
+      .ilike("peptide_name", name)
+      .order("created_at", { ascending: true });
+
+    if (invError) {
+      return {
+        message: "",
+        warning: `Dose saved, but inventory couldn't be checked: ${invError.message}`,
+      };
+    }
+
+    // No matching product at all → stay silent (inventory is optional)
+    if (!products || products.length === 0) {
+      return { message: "", warning: "" };
+    }
+
+    // Keep only products whose unit we can convert this dose into
+    const compatible = products.filter(
+      (product) => convertAmount(1, doseUnit, product.unit) !== null
+    );
+
+    if (compatible.length === 0) {
+      return {
+        message: "",
+        warning: `Heads up: "${name}" is in your inventory in ${products[0].unit}, but this dose is in ${doseUnit} — couldn't auto-deduct.`,
+      };
+    }
+
+    const withStock = compatible.filter(
+      (product) => parseFloat(product.quantity_remaining) > 0
+    );
+
+    if (withStock.length === 0) {
+      return {
+        message: "",
+        warning: `Your "${name}" inventory is empty — dose logged, but there was nothing left to deduct.`,
+      };
+    }
+
+    let leftToDeduct = amount; // tracked in the dose's unit
+    const messages = [];
+    let lowStock = null;
+
+    for (const product of withStock) {
+      if (leftToDeduct <= 0) break;
+
+      const inProductUnit = convertAmount(leftToDeduct, doseUnit, product.unit);
+      const available = parseFloat(product.quantity_remaining);
+      const take = Math.min(inProductUnit, available);
+      const newRemaining = parseFloat(Math.max(0, available - take).toFixed(6));
+
+      const { error: updateError } = await supabase
+        .from("inventory")
+        .update({ quantity_remaining: newRemaining })
+        .eq("id", product.id)
+        .eq("user_id", userId);
+
+      if (updateError) {
+        return {
+          message: messages.join(" "),
+          warning: `Dose saved, but updating inventory failed: ${updateError.message}`,
+        };
+      }
+
+      messages.push(
+        `Deducted ${trimNumber(take)} ${product.unit} from "${product.peptide_name}" — ${trimNumber(newRemaining)} ${product.unit} left.`
+      );
+
+      const total = parseFloat(product.quantity_total);
+      if (total > 0 && (newRemaining / total) * 100 <= 20) {
+        lowStock = {
+          name: product.peptide_name,
+          percent: Math.round((newRemaining / total) * 100),
+        };
+      }
+
+      // reduce what's left to deduct (converted back to dose units)
+      leftToDeduct = leftToDeduct - convertAmount(take, product.unit, doseUnit);
+    }
+
+    let warning = "";
+    if (leftToDeduct > 0.000001) {
+      warning = `Your "${name}" inventory didn't have enough to cover the full dose (${trimNumber(leftToDeduct)} ${doseUnit} uncovered).`;
+    }
+    if (lowStock) {
+      warning =
+        (warning ? warning + " " : "") +
+        `⚠️ Low stock: "${lowStock.name}" is at ${lowStock.percent}% — time to reorder.`;
+    }
+
+    return { message: messages.join(" "), warning };
   }
 
   function getFinalSite() {
@@ -285,6 +363,7 @@ export default function Log() {
 
     setSaving(true);
     setError("");
+    setStockWarning("");
 
     const { data: { session } } = await supabase.auth.getSession();
 
@@ -307,7 +386,23 @@ export default function Log() {
     if (error) {
       setError(`Error: ${error.message} | Code: ${error.code}`);
     } else {
-      setSuccess(true);
+      // dose saved — now auto-deduct from inventory
+      const deduction = await deductFromInventory(
+        session.user.id,
+        peptideName,
+        parseFloat(doseAmount),
+        unit
+      );
+
+      setSuccess(
+        deduction.message
+          ? `✅ Dose logged! ${deduction.message}`
+          : "✅ Dose logged successfully!"
+      );
+      if (deduction.warning) {
+        setStockWarning(deduction.warning);
+      }
+
       setPeptideName("");
       setDoseAmount("");
       setInjectionSite("");
@@ -315,9 +410,9 @@ export default function Log() {
       setCustomSite("");
       setDiagramSite("");
       setNotes("");
-      setLoggedAt(today);
+      setLoggedAt(getLocalDateTimeString());
       await fetchRecentLogs(session.user.id);
-      setTimeout(() => setSuccess(false), 3000);
+      setTimeout(() => setSuccess(""), 6000);
     }
 
     setSaving(false);
@@ -347,7 +442,13 @@ export default function Log() {
 
         {success && (
           <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-4 py-3 rounded-lg mb-4 text-sm">
-            ✅ Dose logged successfully!
+            {success}
+          </div>
+        )}
+
+        {stockWarning && (
+          <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 px-4 py-3 rounded-lg mb-4 text-sm">
+            {stockWarning}
           </div>
         )}
 
