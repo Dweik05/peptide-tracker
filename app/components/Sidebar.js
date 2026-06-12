@@ -10,6 +10,7 @@ const links = [
   { href: "/progress", label: "Progress", icon: "📊" },
   { href: "/gym", label: "Gym PRs", icon: "🏋️" },
   { href: "/inventory", label: "Inventory", icon: "📦" },
+  { href: "/planner", label: "Planner", icon: "🧮" },
   { href: "/lab-results", label: "Lab Results", icon: "🧪" },
   { href: "/side-effects", label: "Side Effects", icon: "⚠️" },
   { href: "/peptides", label: "Peptide Encyclopedia", icon: "📚" },
