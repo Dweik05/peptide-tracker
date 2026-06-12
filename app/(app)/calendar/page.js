@@ -1,32 +1,28 @@
 "use client";
 
 // ============================================================
-// CALENDAR  —  goes in:  app/(app)/calendar/page.js
-// (NEW page — create the folder "calendar" inside app/(app)/
-//  and a "page.js" inside it.)
+// CALENDAR (v3)  —  goes in:  app/(app)/calendar/page.js
+// (FULL REPLACEMENT of v2.)
 //
-// Day 20 · Chunk B: the month view your saved schedules run on.
+// Same wall-calendar design as v2, with one engineering change:
 //
-//   - Month grid (Mon-first, matching the planner's day picker)
-//     with ◀ ▶ navigation and a Today button
-//   - ● emerald dot  = a dose is SCHEDULED that day
-//     ● sky dot      = you actually LOGGED a dose that day
-//     (a past day with emerald but no sky = a missed dose,
-//      visible at a glance — no nagging, just the dots)
-//   - Click any day → detail panel: what's scheduled, what was
-//     logged (with times)
-//   - "Your schedules" card: pause/resume, email on/off, delete
+//   ALL LAYOUT-CRITICAL STYLES ARE INLINE ON PURPOSE.
+//   (the 7-column grid, hairline grid lines, cell heights,
+//    chip sizing + colors, today's ring)
 //
-// Scheduled markers come from ACTIVE schedules only, computed
-// live from the recurrence rules via app/lib/schedule-helpers.js
-// (the same math the email route will use in Chunk C).
-// Logged markers come from your real dose_logs history.
+// Why: inline styles don't depend on Tailwind's build step, so
+// a stale or incompletely-generated stylesheet can never turn
+// the calendar back into a single column. Do NOT "clean these
+// up" into Tailwind classes later — they're inline by design.
+// Cosmetic styles that the project already uses everywhere
+// (slate cards, text sizes, hover states) stay as classes.
 // ============================================================
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../lib/supabase";
+import { PEPTIDES } from "../../lib/peptides";
 import {
   dateFromString,
   toDateString,
@@ -34,13 +30,83 @@ import {
   describeFrequency,
 } from "../../lib/schedule-helpers";
 
+// 1 = week starts Monday · 0 = week starts Sunday
+const WEEK_STARTS_ON = 1;
+
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const HEADER_LABELS = [0, 1, 2, 3, 4, 5, 6].map(
+  (i) => DAY_LABELS[(WEEK_STARTS_ON + i) % 7]
+);
+
+// ---- inline style constants (Tailwind-independent) ----
+const GRID_LINE_COLOR = "#334155"; // slate-700 — the hairline ruling
+const CELL_MIN_HEIGHT = "clamp(64px, 11vw, 96px)"; // shorter boxes on phones
+const TODAY_RING = "inset 0 0 0 1px #10b981"; // emerald-500
+
+const gridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+  gap: 1,
+  backgroundColor: GRID_LINE_COLOR,
+};
+
+const dayCellStyle = {
+  minHeight: CELL_MIN_HEIGHT,
+  padding: 6,
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+  textAlign: "left",
+};
+
+const blankCellStyle = {
+  minHeight: CELL_MIN_HEIGHT,
+  backgroundColor: "rgba(15, 23, 42, 0.55)", // dimmed slate-900
+};
+
+function chipStyle(kind) {
+  const base = {
+    display: "block",
+    width: "100%",
+    fontSize: 10,
+    lineHeight: 1.25,
+    padding: "2px 4px",
+    borderRadius: 4,
+    border: "1px solid",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
+  if (kind === "sched") {
+    return {
+      ...base,
+      backgroundColor: "rgba(16, 185, 129, 0.12)", // emerald-500 tint
+      borderColor: "rgba(16, 185, 129, 0.25)",
+      color: "#6ee7b7", // emerald-300
+    };
+  }
+  return {
+    ...base,
+    backgroundColor: "rgba(14, 165, 233, 0.12)", // sky-500 tint
+    borderColor: "rgba(14, 165, 233, 0.25)",
+    color: "#7dd3fc", // sky-300
+  };
+}
+
+// peptide full name → short code, for compact chips ("RT · 1mg")
+const SHORT_BY_NAME = {};
+for (const p of PEPTIDES) SHORT_BY_NAME[p.full] = p.short;
+function shortName(name) {
+  return SHORT_BY_NAME[name] || name;
+}
+
 // ---------------- helpers (display only) ----------------
 
-// Cells for one month, Mon-first. `null` = blank alignment cell.
+// Cells for one month. `null` = blank box for alignment.
 function buildMonthCells(year, month) {
   const first = new Date(year, month, 1, 12);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const leadingBlanks = (first.getDay() + 6) % 7; // Mon=0 ... Sun=6
+  const leadingBlanks = (first.getDay() - WEEK_STARTS_ON + 7) % 7;
 
   const cells = [];
   for (let i = 0; i < leadingBlanks; i++) cells.push(null);
@@ -74,8 +140,6 @@ function formatTime(timestamp) {
     minute: "2-digit",
   });
 }
-
-const WEEKDAY_HEADERS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export default function CalendarPage() {
   const router = useRouter();
@@ -119,9 +183,9 @@ export default function CalendarPage() {
   }, []);
 
   // ---------- load logged doses whenever the month changes ----------
-  // We fetch with a one-day pad on each side, then bucket by LOCAL
-  // date below — so a dose logged at 11pm on the last day of the
-  // month can't fall off the grid because of timezone conversion.
+  // Fetched with a one-day pad on each side, then bucketed by LOCAL
+  // date — so a dose logged at 11pm on the last day of the month
+  // can't fall off the grid because of timezone conversion.
   useEffect(() => {
     if (!userId) return;
     async function loadLogs() {
@@ -279,67 +343,113 @@ export default function CalendarPage() {
             </div>
           </div>
 
-          {/* weekday headers */}
-          <div className="grid grid-cols-7 gap-1 mb-1">
-            {WEEKDAY_HEADERS.map((label) => (
-              <div
-                key={label}
-                className="text-center text-xs text-slate-500 py-1"
-              >
-                {label}
-              </div>
-            ))}
-          </div>
-
-          {/* the days */}
-          <div className="grid grid-cols-7 gap-1">
-            {cells.map((cellDate, index) => {
-              if (!cellDate) {
-                return <div key={`blank-${index}`} className="aspect-square" />;
-              }
-              const key = toDateString(cellDate);
-              const scheduledHere = dosesDueOn(schedules, cellDate);
-              const loggedHere = loggedMap[key] || [];
-              const isToday = key === todayString;
-              const isSelected = key === selectedDate;
-
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setSelectedDate(key)}
-                  className={`aspect-square rounded-lg flex flex-col items-center justify-center transition-colors ${
-                    isSelected
-                      ? "bg-slate-800 text-white"
-                      : "text-slate-300 hover:bg-slate-800/50"
-                  } ${isToday ? "border border-emerald-500" : ""}`}
+          {/* the wall-calendar grid — layout styles are INLINE on
+              purpose (see header comment) */}
+          <div
+            className="border border-slate-700 rounded-lg"
+            style={{ overflow: "hidden" }}
+          >
+            <div style={gridStyle}>
+              {/* weekday header band */}
+              {HEADER_LABELS.map((label) => (
+                <div
+                  key={label}
+                  className="bg-slate-800 text-center text-xs font-semibold text-slate-300 py-2"
+                  style={{ textTransform: "uppercase", letterSpacing: "0.06em" }}
                 >
-                  <span className="text-sm">{cellDate.getDate()}</span>
-                  <span className="flex gap-1 justify-center mt-1 h-1.5">
-                    {scheduledHere.length > 0 && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  {label}
+                </div>
+              ))}
+
+              {/* day boxes */}
+              {cells.map((cellDate, index) => {
+                if (!cellDate) {
+                  return <div key={`blank-${index}`} style={blankCellStyle} />;
+                }
+                const key = toDateString(cellDate);
+                const scheduledHere = dosesDueOn(schedules, cellDate);
+                const loggedHere = loggedMap[key] || [];
+                const isToday = key === todayString;
+                const isSelected = key === selectedDate;
+
+                // chips: scheduled first, then logged, max 3 visible
+                const chips = [
+                  ...scheduledHere.map((s) => ({
+                    kind: "sched",
+                    text: `${shortName(s.peptide_name)} · ${s.dose_amount}${s.unit}`,
+                  })),
+                  ...loggedHere.map((l) => ({
+                    kind: "log",
+                    text: `${shortName(l.peptide_name)} · ${l.dose_amount}${l.unit}`,
+                  })),
+                ];
+                const visibleChips = chips.slice(0, 3);
+                const extraCount = chips.length - visibleChips.length;
+
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setSelectedDate(key)}
+                    className={`transition-colors ${
+                      isSelected
+                        ? "bg-slate-800"
+                        : "bg-slate-900 hover:bg-slate-800"
+                    }`}
+                    style={{
+                      ...dayCellStyle,
+                      ...(isToday ? { boxShadow: TODAY_RING } : {}),
+                    }}
+                  >
+                    <span
+                      className={`text-xs ${
+                        isToday
+                          ? "text-emerald-400 font-bold"
+                          : "text-slate-400"
+                      }`}
+                    >
+                      {cellDate.getDate()}
+                    </span>
+
+                    {visibleChips.map((chip, chipIndex) => (
+                      <span key={chipIndex} style={chipStyle(chip.kind)}>
+                        {chip.text}
+                      </span>
+                    ))}
+                    {extraCount > 0 && (
+                      <span
+                        className="text-slate-500"
+                        style={{ fontSize: 10 }}
+                      >
+                        +{extraCount} more
+                      </span>
                     )}
-                    {loggedHere.length > 0 && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
-                    )}
-                  </span>
-                </button>
-              );
-            })}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* legend */}
-          <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t border-slate-800 text-xs text-slate-400">
+          <div className="flex flex-wrap gap-4 mt-4 text-xs text-slate-400">
             <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              <span style={{ ...chipStyle("sched"), width: "auto" }}>Aa</span>
               Scheduled dose
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+              <span style={{ ...chipStyle("log"), width: "auto" }}>Aa</span>
               Logged dose
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded border border-emerald-500" />
+              <span
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 3,
+                  boxShadow: TODAY_RING,
+                  display: "inline-block",
+                }}
+              />
               Today
             </span>
           </div>
