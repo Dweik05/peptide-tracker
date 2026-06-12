@@ -1,31 +1,30 @@
 "use client";
 
 // ============================================================
-// PROTOCOL PLANNER  —  goes in:  app/(app)/planner/page.js
-// (NEW page — create the folder "planner" inside app/(app)/
-//  and a "page.js" inside it.)
+// PROTOCOL PLANNER (v2)  —  goes in:  app/(app)/planner/page.js
+// (FULL REPLACEMENT of the Day 19 file.)
 //
-// Day 19: the beginner's planning calculator.
+// Day 20 · Chunk A: the planner can now SAVE a protocol as a
+// schedule (one row in the `reminders` table). The calendar
+// (Chunk B) and email reminders (Chunk C) will run on it.
 //
-//   Enter a protocol (peptide, dose, how often, for how long)
-//   and the app does the MATH:
-//     - total number of doses and total amount needed
-//     - how many vials to buy (at a catalogue vial size you pick)
-//     - how long your CURRENT inventory will last
-//     - an optional cost estimate
-//     - a reconstitution "draw" calculator: vial + water →
-//       concentration → exactly how much to draw for your dose
-//       (in mL and insulin units)
-//     - a preview of your upcoming dose dates
+// What's new vs. Day 19:
+//   1. A weekday picker for "per week" frequencies. The
+//      frequency dropdown SEEDS it (3×/week → Mon/Wed/Fri etc.)
+//      but you can tap days to adjust. The picked days drive
+//      BOTH the plan math and what gets saved — so the preview
+//      always matches the schedule exactly.
+//   2. "Once a week" now follows your start date's weekday
+//      (same dates as before — every 7 days from start — just
+//      adjustable now).
+//   3. A "Save as a schedule" section at the bottom of the
+//      plan card: email-reminder toggle + Save button. Saving
+//      inserts ONE row describing the recurrence rule — it does
+//      NOT log doses or touch inventory.
 //
-// ⚠️ FRAMING (lawyer checklist item #3): this planner does
-// arithmetic on a protocol YOU enter. It never recommends a
-// peptide, a dose, or a schedule — those are between you and
-// your provider. Nothing here is medical advice.
-//
-// Day 20 will let you SAVE a protocol as a schedule that the
-// calendar + email reminders run on. This page is calculator-
-// only — it saves nothing, so it's completely self-contained.
+// ⚠️ FRAMING (lawyer checklist item #3): unchanged — this page
+// does arithmetic on a protocol YOU enter. Nothing here is a
+// recommendation or medical advice.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -48,6 +47,13 @@ function dateFromString(value) {
   return new Date(`${value}T12:00:00`);
 }
 
+function toDateString(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 function formatDate(date) {
   return date.toLocaleDateString(undefined, {
     weekday: "short",
@@ -60,32 +66,34 @@ function trim(value) {
   return parseFloat(parseFloat(value).toFixed(3)).toString();
 }
 
-// Frequency → how the doses fall. Interval-based ones step by a
-// fixed number of days; pattern-based ones land on weekdays.
+// Interval frequencies step by a fixed number of days from the
+// start date. Everything else lands on picked weekdays.
 function intervalDays(freq) {
   if (freq === "daily") return 1;
   if (freq === "eod") return 2;
-  if (freq === "weekly") return 7;
   return null;
 }
 
-// weekday set (0=Sun ... 6=Sat) for pattern frequencies
-function weekdayPattern(freq, customN) {
-  if (freq === "2x") return new Set([1, 4]); // Mon, Thu
-  if (freq === "3x") return new Set([1, 3, 5]); // Mon, Wed, Fri
-  if (freq === "5x") return new Set([1, 2, 3, 4, 5]); // Mon–Fri
+// Default weekday set used to SEED the picker when you choose a
+// "per week" frequency (0=Sun ... 6=Sat). You can adjust after.
+function defaultWeekdays(freq, customN, startDateString) {
+  if (freq === "weekly") return [dateFromString(startDateString).getDay()];
+  if (freq === "2x") return [1, 4]; // Mon, Thu
+  if (freq === "3x") return [1, 3, 5]; // Mon, Wed, Fri
+  if (freq === "5x") return [1, 2, 3, 4, 5]; // Mon–Fri
   if (freq === "custom") {
     const n = Math.max(1, Math.min(7, Math.round(customN) || 1));
     const order = [1, 2, 3, 4, 5, 6, 0]; // Mon..Sun
     const set = new Set();
     for (let i = 0; i < n; i++) set.add(order[Math.floor((i * 7) / n)]);
-    return set;
+    return [...set].sort((a, b) => a - b);
   }
-  return null;
+  return [];
 }
 
-// All dose dates from start over `weeks`, by frequency.
-function generateDoseDates(start, weeks, freq, customN) {
+// All dose dates from start over `weeks`. Interval frequencies
+// step by N days; weekday frequencies land on the picked days.
+function generateDoseDates(start, weeks, freq, pickedDays) {
   const out = [];
   const end = new Date(start);
   end.setDate(end.getDate() + Math.round(weeks * 7));
@@ -99,7 +107,8 @@ function generateDoseDates(start, weeks, freq, customN) {
       cursor.setDate(cursor.getDate() + interval);
     }
   } else {
-    const pattern = weekdayPattern(freq, customN);
+    const pattern = new Set(pickedDays);
+    if (pattern.size === 0) return out;
     while (cursor < end) {
       if (pattern.has(cursor.getDay())) out.push(new Date(cursor));
       cursor.setDate(cursor.getDate() + 1);
@@ -116,6 +125,17 @@ const FREQUENCIES = [
   { key: "2x", label: "2× / week" },
   { key: "weekly", label: "Once a week" },
   { key: "custom", label: "Custom / week" },
+];
+
+// Picker buttons in Mon-first order (value is JS getDay())
+const WEEKDAY_OPTIONS = [
+  { value: 1, label: "Mon" },
+  { value: 2, label: "Tue" },
+  { value: 3, label: "Wed" },
+  { value: 4, label: "Thu" },
+  { value: 5, label: "Fri" },
+  { value: 6, label: "Sat" },
+  { value: 0, label: "Sun" },
 ];
 
 const inputClasses =
@@ -137,10 +157,19 @@ export default function PlannerPage() {
   const [weeks, setWeeks] = useState("12");
   const [startDate, setStartDate] = useState(getTodayString());
 
+  // which weekdays the doses land on (for "per week" frequencies)
+  const [pickedDays, setPickedDays] = useState([]);
+
   // vial size + cost for the "how many to buy" math
   const [vialSize, setVialSize] = useState("");
   const [vialUnit, setVialUnit] = useState("mg");
   const [costPerVial, setCostPerVial] = useState("");
+
+  // saving the schedule
+  const [emailReminders, setEmailReminders] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [justSaved, setJustSaved] = useState(false);
 
   // draw calculator (independent little tool)
   const [drawVialMg, setDrawVialMg] = useState("");
@@ -168,6 +197,36 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // When the frequency (or custom N) changes, seed the weekday
+  // picker with a sensible default. You can tap days to adjust
+  // afterwards — your picks drive the math AND the save.
+  useEffect(() => {
+    if (intervalDays(freq)) {
+      setPickedDays([]);
+      return;
+    }
+    setPickedDays(defaultWeekdays(freq, parseFloat(customN), startDate));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [freq, customN]);
+
+  // "Once a week" follows the start date's weekday — if you move
+  // the start date, the weekly day moves with it (until you tap
+  // a different day yourself, after which your pick stays until
+  // the date changes again).
+  useEffect(() => {
+    if (freq === "weekly") {
+      setPickedDays([dateFromString(startDate).getDay()]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startDate]);
+
+  // Any edit to the protocol clears the "Saved ✓" message so it
+  // never lies about what's in the database.
+  useEffect(() => {
+    setJustSaved(false);
+    setSaveError("");
+  }, [peptide, dose, doseUnit, freq, customN, weeks, startDate, pickedDays, emailReminders]);
+
   // When the peptide changes, preset vial size + unit from the
   // catalogue (and seed the draw calculator's vial amount).
   function handlePeptideChange(name) {
@@ -182,15 +241,25 @@ export default function PlannerPage() {
     }
   }
 
+  function toggleDay(value) {
+    setPickedDays((current) =>
+      current.includes(value)
+        ? current.filter((d) => d !== value)
+        : [...current, value].sort((a, b) => a - b)
+    );
+  }
+
   // ---------------- the math ----------------
   const doseNumber = parseFloat(dose);
   const weeksNumber = parseFloat(weeks);
+  const usesWeekdays = intervalDays(freq) === null;
   const validProtocol =
     peptide &&
     !isNaN(doseNumber) &&
     doseNumber > 0 &&
     !isNaN(weeksNumber) &&
-    weeksNumber > 0;
+    weeksNumber > 0 &&
+    (!usesWeekdays || pickedDays.length > 0);
 
   let plan = null;
   if (validProtocol) {
@@ -198,7 +267,7 @@ export default function PlannerPage() {
       dateFromString(startDate),
       weeksNumber,
       freq,
-      parseFloat(customN)
+      pickedDays
     );
     const totalDoses = dates.length;
     const totalAmount = totalDoses * doseNumber; // in doseUnit
@@ -265,6 +334,41 @@ export default function PlannerPage() {
     };
   }
 
+  // ---------------- saving the schedule ----------------
+  async function handleSave() {
+    if (!validProtocol || !userId || saving) return;
+    setSaving(true);
+    setSaveError("");
+
+    // end_date = last day of the protocol window (inclusive)
+    const startObj = dateFromString(startDate);
+    const endObj = new Date(startObj);
+    endObj.setDate(endObj.getDate() + Math.round(weeksNumber * 7) - 1);
+
+    const interval = intervalDays(freq);
+    const row = {
+      user_id: userId,
+      peptide_name: peptide,
+      dose_amount: doseNumber,
+      unit: doseUnit,
+      interval_days: interval ? interval : null,
+      days_of_week: interval ? null : [...pickedDays].sort((a, b) => a - b),
+      start_date: startDate,
+      end_date: toDateString(endObj),
+      duration_weeks: weeksNumber,
+      email_reminders: emailReminders,
+      active: true,
+    };
+
+    const { error } = await supabase.from("reminders").insert(row);
+    setSaving(false);
+    if (error) {
+      setSaveError(error.message);
+      return;
+    }
+    setJustSaved(true);
+  }
+
   // ---------------- draw calculator ----------------
   const dv = parseFloat(drawVialMg);
   const dw = parseFloat(drawWaterMl);
@@ -293,7 +397,8 @@ export default function PlannerPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Protocol Planner</h1>
         <p className="text-slate-400 mt-1">
-          Enter a protocol and the app works out the supply, cost, and timing.
+          Enter a protocol and the app works out the supply, cost, and timing —
+          then save it as a schedule.
         </p>
       </div>
 
@@ -375,7 +480,8 @@ export default function PlannerPage() {
           {freq === "custom" && (
             <div>
               <label className="block text-sm text-slate-400 mb-1">
-                Times per week
+                Times per week{" "}
+                <span className="text-slate-500">(sets a starting pattern)</span>
               </label>
               <input
                 type="number"
@@ -387,6 +493,43 @@ export default function PlannerPage() {
                 className={inputClasses}
               />
             </div>
+          )}
+
+          {/* weekday picker — only for "per week" frequencies */}
+          {usesWeekdays ? (
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">
+                On which days{" "}
+                <span className="text-slate-500">(tap to adjust)</span>
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {WEEKDAY_OPTIONS.map((day) => (
+                  <button
+                    key={day.value}
+                    type="button"
+                    onClick={() => toggleDay(day.value)}
+                    className={
+                      pickedDays.includes(day.value)
+                        ? "px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-sm font-semibold"
+                        : "px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 text-sm hover:bg-slate-700"
+                    }
+                  >
+                    {day.label}
+                  </button>
+                ))}
+              </div>
+              {pickedDays.length === 0 && (
+                <p className="text-xs text-amber-400 mt-2">
+                  Pick at least one day to see the plan.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500">
+              Doses fall{" "}
+              {freq === "daily" ? "every day" : "every other day"} from your
+              start date.
+            </p>
           )}
 
           <div className="grid grid-cols-2 gap-4">
@@ -600,10 +743,56 @@ export default function PlannerPage() {
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-slate-500 mt-3">
-                    Saving this as a schedule with reminders is coming in the
-                    next update.
+                </div>
+
+                {/* ---------- save as a schedule ---------- */}
+                <div className="pt-4 border-t border-slate-800 space-y-3">
+                  <h3 className="text-sm font-semibold text-white">
+                    Save as a schedule
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Saving stores this recurrence rule so the calendar and
+                    reminders can use it. It doesn't log any doses or touch
+                    your inventory.
                   </p>
+
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={emailReminders}
+                      onChange={(e) => setEmailReminders(e.target.checked)}
+                      className="mt-1 accent-emerald-500"
+                    />
+                    <span className="text-sm text-slate-300">
+                      Email me on dose days
+                      <span className="block text-xs text-slate-500">
+                        Email sending gets wired up later in this build phase —
+                        your preference is stored with the schedule now.
+                      </span>
+                    </span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-semibold py-3 rounded-lg transition-colors"
+                  >
+                    {saving ? "Saving..." : "Save schedule"}
+                  </button>
+
+                  {justSaved && (
+                    <p className="text-sm text-emerald-400">
+                      ✓ Schedule saved. You can verify the row in Supabase →
+                      Table Editor → reminders. (It'll appear on the Calendar
+                      page next.)
+                    </p>
+                  )}
+                  {saveError && (
+                    <p className="text-sm text-red-400">
+                      Couldn't save: {saveError}
+                    </p>
+                  )}
                 </div>
               </div>
             )}
