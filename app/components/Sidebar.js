@@ -1,5 +1,14 @@
 "use client";
 
+// ============================================================
+// SIDEBAR (v4)  —  goes in:  app/components/Sidebar.js
+// (FULL REPLACEMENT of v3.)
+//
+// Day 20 · Chunk B: ONE change — a new 📅 Calendar link right
+// after Planner, since the calendar runs on what the planner
+// saves. Everything else is identical to v3.
+// ============================================================
+
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase";
@@ -11,6 +20,7 @@ const links = [
   { href: "/gym", label: "Gym PRs", icon: "🏋️" },
   { href: "/inventory", label: "Inventory", icon: "📦" },
   { href: "/planner", label: "Planner", icon: "🧮" },
+  { href: "/calendar", label: "Calendar", icon: "📅" },
   { href: "/lab-results", label: "Lab Results", icon: "🧪" },
   { href: "/side-effects", label: "Side Effects", icon: "⚠️" },
   { href: "/peptides", label: "Peptide Encyclopedia", icon: "📚" },
