@@ -383,3 +383,60 @@ export function entryByName(name) {
 export function allEntriesSorted() {
   return [...ENTRIES].sort((a, b) => a.name.localeCompare(b.name));
 }
+
+// ------------------------------------------------------------
+// STACK ANALYSIS — given the peptide names a user is on (from
+// dose logs, inventory, or manual picking), work out what that
+// combination targets, based purely on this file's goal tags.
+//
+// Returns:
+//   known:   entries we have full data for
+//   unknown: names with no encyclopedia entry yet (long tail —
+//            listed honestly, not silently dropped)
+//   targets: [{ key, primary: [names], secondary: [names] }]
+//            sorted strongest-first (most primaries, then most
+//            secondaries)
+// ------------------------------------------------------------
+export function analyzeStack(names) {
+  const known = [];
+  const unknown = [];
+
+  for (const raw of names || []) {
+    if (!raw) continue;
+    const entry = entryByName(raw);
+    if (entry) {
+      if (!known.find((k) => k.name === entry.name)) known.push(entry);
+    } else {
+      const cleaned = raw.trim();
+      if (
+        cleaned &&
+        !unknown.find((u) => u.toLowerCase() === cleaned.toLowerCase())
+      ) {
+        unknown.push(cleaned);
+      }
+    }
+  }
+
+  const goalMap = {};
+  for (const entry of known) {
+    for (const tag of entry.goals) {
+      if (!goalMap[tag.key]) {
+        goalMap[tag.key] = { key: tag.key, primary: [], secondary: [] };
+      }
+      if (tag.role === "primary") {
+        goalMap[tag.key].primary.push(entry.name);
+      } else {
+        goalMap[tag.key].secondary.push(entry.name);
+      }
+    }
+  }
+
+  const targets = Object.values(goalMap);
+  targets.sort(
+    (a, b) =>
+      b.primary.length - a.primary.length ||
+      b.secondary.length - a.secondary.length
+  );
+
+  return { known, unknown, targets };
+}

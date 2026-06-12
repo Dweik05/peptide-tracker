@@ -39,6 +39,7 @@ import {
   groupOfKey,
 } from "../../lib/sites";
 import { deductFromInventory } from "../../lib/inventory-helpers";
+import StackSummary from "../../components/StackSummary";
 
 // Local date+time as "YYYY-MM-DDTHH:MM" for the datetime picker.
 function getLocalDateTimeString() {
@@ -691,8 +692,10 @@ export default function Log() {
             </button>
           </div>
 
-          {/* ============ RIGHT: rotation map + recent doses ============ */}
+          {/* ============ RIGHT: stack + rotation map + recent doses ============ */}
           <div className="space-y-6">
+            <StackSummary />
+
             <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
               <h2 className="text-white font-semibold mb-4">
                 Site rotation <span className="text-sm font-normal text-slate-500">(last 90 days)</span>

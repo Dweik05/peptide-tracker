@@ -27,6 +27,7 @@ import {
   VIAL_SIZES,
   convertAmount,
 } from "../../lib/peptides";
+import StackSummary from "../../components/StackSummary";
 
 const LOW_STOCK_PERCENT = 20;
 
@@ -352,8 +353,10 @@ export default function InventoryPage() {
           SIDE-BY-SIDE: products (left) | add form (right)
           ================================================ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        {/* ---------- LEFT COLUMN: product cards ---------- */}
+        {/* ---------- LEFT COLUMN: stack + product cards ---------- */}
         <div className="space-y-4">
+          <StackSummary />
+
           {sortedItems.length === 0 ? (
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
               <p className="text-slate-500">

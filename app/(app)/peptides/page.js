@@ -2,34 +2,33 @@
 
 // ============================================================
 // PEPTIDE ENCYCLOPEDIA  —  goes in:  app/(app)/peptides/page.js
-// (replaces the "coming soon" placeholder — paste over it all)
+// (v2 — REPLACES the Day 17 version; use this one)
 //
-// Day 17: goal-first reference library.
+// Day 17 + the My Stack feature:
 //
-//   - Browse by GOAL (Weight Loss, Healing, Sleep, ...): each
-//     goal lists relevant peptides tagged PRIMARY vs SECONDARY,
-//     with an EVIDENCE-TIER badge + a plain-language one-liner.
-//   - Or browse A–Z.
-//   - Tap any peptide for the full entry: what it is, how it
-//     works, half-life, storage, common side effects, a clearly
-//     labeled DOSING REFERENCE block, and real regulatory
-//     status.
+//   - Browse by GOAL or A–Z (Day 17)
+//   - Full reference entries with evidence tiers (Day 17)
+//   - NEW "MY STACK" TAB: auto-detects the peptides you're on
+//     (recent doses + inventory), shows what that combination
+//     targets — "primarily Weight Loss, with secondary support
+//     for Skin & Hair..." — and lets you toggle peptides on/off
+//     to preview any stack. Based purely on the encyclopedia's
+//     reference tags: descriptive, never a recommendation.
 //
-// ⚠️ All content is reference-only, not medical advice. The
-// data lives in app/lib/encyclopedia.js (the single place to
-// review/edit dosing content — lawyer checklist item #3).
-//
-// Day 18 will add the remaining peptides, the reconstitution
-// guide, and search.
+// Data lives in app/lib/encyclopedia.js (single review point —
+// lawyer checklist item #3).
 // ============================================================
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabase } from "../../lib/supabase";
+import { PEPTIDES } from "../../lib/peptides";
 import {
   GOALS,
   EVIDENCE_TIERS,
   entriesForGoal,
   entryByName,
   allEntriesSorted,
+  analyzeStack,
 } from "../../lib/encyclopedia";
 
 // Tailwind classes per evidence-tier color (kept explicit so
@@ -58,9 +57,80 @@ function TierBadge({ tierKey }) {
 }
 
 export default function EncyclopediaPage() {
-  // view: "goals" grid, a specific goal key, or "az"
+  // view: "goals" grid, a specific goal key, "az", or "stack"
   const [mode, setMode] = useState("goals");
   const [openName, setOpenName] = useState(null); // entry detail
+
+  // ----- My Stack -----
+  const [autoNames, setAutoNames] = useState([]); // detected from your data
+  const [selected, setSelected] = useState([]); // the stack being analyzed
+  const [stackLoaded, setStackLoaded] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
+
+  // Detect the user's stack once: peptides dosed in the last 30
+  // days + anything in inventory with stock remaining.
+  useEffect(() => {
+    async function loadStack() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) {
+        setStackLoaded(true);
+        return;
+      }
+      const uid = session.user.id;
+
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const [doseResult, inventoryResult] = await Promise.all([
+        supabase
+          .from("dose_logs")
+          .select("peptide_name")
+          .eq("user_id", uid)
+          .gte("logged_at", thirtyDaysAgo.toISOString()),
+        supabase
+          .from("inventory")
+          .select("peptide_name, quantity_remaining")
+          .eq("user_id", uid),
+      ]);
+
+      const seen = new Map();
+      for (const row of doseResult.data || []) {
+        const key = row.peptide_name.trim().toLowerCase();
+        if (key && !seen.has(key)) seen.set(key, row.peptide_name.trim());
+      }
+      for (const row of inventoryResult.data || []) {
+        if (parseFloat(row.quantity_remaining) <= 0) continue;
+        const key = row.peptide_name.trim().toLowerCase();
+        if (key && !seen.has(key)) seen.set(key, row.peptide_name.trim());
+      }
+
+      const detected = [...seen.values()];
+      setAutoNames(detected);
+      setSelected(detected);
+      setStackLoaded(true);
+    }
+    loadStack();
+  }, []);
+
+  function isSelected(name) {
+    return selected.some(
+      (s) => s.trim().toLowerCase() === name.trim().toLowerCase()
+    );
+  }
+
+  function toggleSelected(name) {
+    setSelected((previous) =>
+      previous.some(
+        (s) => s.trim().toLowerCase() === name.trim().toLowerCase()
+      )
+        ? previous.filter(
+            (s) => s.trim().toLowerCase() !== name.trim().toLowerCase()
+          )
+        : [...previous, name]
+    );
+  }
 
   const openEntry = openName ? entryByName(openName) : null;
 
@@ -194,6 +264,225 @@ export default function EncyclopediaPage() {
     );
   }
 
+  // ---------- MY STACK VIEW ----------
+  if (mode === "stack") {
+    const { known, unknown, targets } = analyzeStack(selected);
+
+    const primaryGoals = targets.filter((t) => t.primary.length > 0);
+    const secondaryOnlyGoals = targets.filter((t) => t.primary.length === 0);
+
+    function goalLabel(key) {
+      const goal = GOALS.find((g) => g.key === key);
+      return goal ? `${goal.icon} ${goal.label}` : key;
+    }
+
+    return (
+      <div className="p-8 max-w-5xl space-y-6">
+        <Header />
+        <ModeTabs mode={mode} setMode={setMode} />
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-bold text-white">🧩 My stack</h2>
+            <p className="text-slate-400 mt-1 text-sm">
+              Pre-filled from your recent doses and inventory — toggle
+              peptides to preview any combination.
+            </p>
+          </div>
+          {autoNames.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelected(autoNames)}
+              className="text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700"
+            >
+              ↺ Reset to my peptides
+            </button>
+          )}
+        </div>
+
+        {!stackLoaded ? (
+          <p className="text-slate-500">Detecting your stack...</p>
+        ) : (
+          <>
+            {/* the selected stack as removable chips */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+              {selected.length === 0 ? (
+                <p className="text-slate-500">
+                  Nothing selected — add peptides below, or log doses /
+                  inventory and they'll appear here automatically.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {selected.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => toggleSelected(name)}
+                      title="Remove from stack"
+                      className="text-sm bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-full px-3 py-1.5 hover:bg-emerald-500/20"
+                    >
+                      {name} ✕
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* add/remove picker */}
+              <button
+                type="button"
+                onClick={() => setShowPicker((previous) => !previous)}
+                aria-expanded={showPicker}
+                className="mt-4 text-sm text-slate-400 hover:text-white"
+              >
+                {showPicker ? "▾" : "▸"} Add / remove peptides
+              </button>
+              {showPicker && (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {PEPTIDES.filter((p) => p.full !== "Other").map((p) => (
+                    <button
+                      key={p.full}
+                      type="button"
+                      onClick={() => toggleSelected(p.full)}
+                      className={
+                        isSelected(p.full)
+                          ? "text-sm bg-emerald-500 text-white rounded-full px-3 py-1.5 font-semibold"
+                          : "text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded-full px-3 py-1.5 hover:bg-slate-700"
+                      }
+                    >
+                      {p.full}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* the verdict */}
+            {known.length > 0 && targets.length > 0 && (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+                <p className="text-slate-200">
+                  This stack{" "}
+                  {primaryGoals.length > 0 ? (
+                    <>
+                      primarily targets{" "}
+                      <span className="text-white font-semibold">
+                        {primaryGoals
+                          .map((t) => goalLabel(t.key))
+                          .join(", ")}
+                      </span>
+                    </>
+                  ) : (
+                    <>has no primary target among its tagged goals</>
+                  )}
+                  {secondaryOnlyGoals.length > 0 && (
+                    <>
+                      {primaryGoals.length > 0 ? " — with" : " It offers"}{" "}
+                      secondary support for{" "}
+                      <span className="text-slate-300 font-semibold">
+                        {secondaryOnlyGoals
+                          .map((t) => goalLabel(t.key))
+                          .join(", ")}
+                      </span>
+                    </>
+                  )}
+                  .
+                </p>
+
+                {/* per-goal breakdown */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
+                  {targets.map((target) => (
+                    <div
+                      key={target.key}
+                      className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <h3 className="text-white font-semibold text-sm">
+                          {goalLabel(target.key)}
+                        </h3>
+                        <span
+                          className={
+                            target.primary.length > 0
+                              ? "text-xs font-semibold bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-md px-2 py-0.5"
+                              : "text-xs font-semibold bg-slate-700/40 border border-slate-600 text-slate-300 rounded-md px-2 py-0.5"
+                          }
+                        >
+                          {target.primary.length > 0
+                            ? "Primary target"
+                            : "Secondary"}
+                        </span>
+                      </div>
+                      <p className="text-sm text-slate-400 mt-2">
+                        {target.primary.length > 0 && (
+                          <>
+                            Primary for{" "}
+                            {target.primary.map((name, index) => (
+                              <span key={name}>
+                                {index > 0 && ", "}
+                                <button
+                                  type="button"
+                                  onClick={() => setOpenName(name)}
+                                  className="text-emerald-400 hover:text-emerald-300"
+                                >
+                                  {name}
+                                </button>
+                              </span>
+                            ))}
+                          </>
+                        )}
+                        {target.secondary.length > 0 && (
+                          <>
+                            {target.primary.length > 0 && " · "}
+                            Secondary for{" "}
+                            {target.secondary.map((name, index) => (
+                              <span key={name}>
+                                {index > 0 && ", "}
+                                <button
+                                  type="button"
+                                  onClick={() => setOpenName(name)}
+                                  className="text-slate-300 hover:text-white"
+                                >
+                                  {name}
+                                </button>
+                              </span>
+                            ))}
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* honest pending list */}
+            {unknown.length > 0 && (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <p className="text-sm text-slate-400">
+                  <span className="text-slate-300 font-semibold">
+                    Not in the encyclopedia yet:
+                  </span>{" "}
+                  {unknown.join(", ")} — full entries are coming (Day 18);
+                  these aren't counted in the breakdown above.
+                </p>
+              </div>
+            )}
+
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+              <p className="text-sm text-slate-400">
+                <span className="text-amber-400 font-semibold">
+                  Descriptive, not a recommendation.
+                </span>{" "}
+                This breakdown reflects the encyclopedia's reference tags for
+                each peptide individually — it says nothing about whether a
+                combination is safe, effective, or right for you. Always work
+                with a licensed healthcare provider.
+              </p>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
   // ---------- A SPECIFIC GOAL VIEW ----------
   if (mode !== "goals") {
     const goal = GOALS.find((g) => g.key === mode);
@@ -306,7 +595,8 @@ function Header() {
     <div>
       <h1 className="text-2xl font-bold text-white">Peptide Encyclopedia</h1>
       <p className="text-slate-400 mt-1">
-        Browse by goal or A–Z. Reference information, not medical advice.
+        Browse by goal, A–Z, or your own stack. Reference information, not
+        medical advice.
       </p>
     </div>
   );
@@ -315,7 +605,7 @@ function Header() {
 function ModeTabs({ mode, setMode }) {
   const onGoals = mode === "goals" || GOALS.some((g) => g.key === mode);
   return (
-    <div className="flex gap-2">
+    <div className="flex flex-wrap gap-2">
       <button
         type="button"
         onClick={() => setMode("goals")}
@@ -337,6 +627,17 @@ function ModeTabs({ mode, setMode }) {
         }
       >
         A–Z
+      </button>
+      <button
+        type="button"
+        onClick={() => setMode("stack")}
+        className={
+          mode === "stack"
+            ? "px-4 py-2 rounded-lg bg-emerald-500 text-white text-sm font-semibold"
+            : "px-4 py-2 rounded-lg bg-slate-800 text-slate-400 text-sm hover:bg-slate-700"
+        }
+      >
+        🧩 My stack
       </button>
     </div>
   );
