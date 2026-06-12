@@ -3,17 +3,24 @@
 // ============================================================
 // PROGRESS PAGE  —  goes in:  app/(app)/progress/page.js
 //
-// Day 11, Step 4.1 — layout tweak from your feedback:
-// the "Progress photos" card has MOVED from the bottom of the
-// page up into the RIGHT COLUMN, sitting under Body
-// measurements and Measurement history, in the same
-// drop-down style. Photo grid is now 2 columns to fit the
-// narrower column. On phones everything still stacks into
-// one column in order: weight form → weight history →
-// measurements → measurement history → photos.
+// Day 16 — Progress page v2 (the one you asked for twice 📷):
 //
-// Nothing else changed — all saving/loading from Steps 1–4
-// is identical.
+//   1. PHOTO MARKERS ON THE WEIGHT CHART: amber dashed lines
+//      mark every day you took a progress photo, with a 📷
+//      toggle next to the range buttons to show/hide them.
+//      Under the hood the chart's bottom axis upgraded from
+//      evenly-spaced labels to a TRUE TIME AXIS — entries now
+//      sit at their real dates, so a 3-week gap looks like a
+//      3-week gap and photo markers land exactly where they
+//      belong.
+//   2. COMPARE PHOTOS: new drop-down card under the photo
+//      timeline — pick any Before and After, see them side by
+//      side with dates, captions, the nearest logged weight to
+//      each, and the change between them ("↓ 14.2 lbs over 62
+//      days").
+//
+// Everything else — weight logging, measurements, photo
+// uploads — is untouched.
 // ============================================================
 
 import { useState, useEffect, useRef } from "react";
@@ -27,6 +34,7 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  ReferenceLine,
 } from "recharts";
 
 const UNITS = ["lbs", "kg", "st"];
@@ -203,6 +211,12 @@ export default function ProgressPage() {
   const [showWeightHistory, setShowWeightHistory] = useState(false);
   const [showMeasurementHistory, setShowMeasurementHistory] = useState(false);
   const [showPhotos, setShowPhotos] = useState(false);
+
+  // ----- Day 16: photo markers + compare -----
+  const [showPhotoMarkers, setShowPhotoMarkers] = useState(true); // 📷 on the chart
+  const [showCompare, setShowCompare] = useState(false); // compare card open?
+  const [compareBeforeId, setCompareBeforeId] = useState(""); // "" = default (oldest)
+  const [compareAfterId, setCompareAfterId] = useState(""); // "" = default (newest)
 
   // ---------- load session + data when the page opens ----------
   useEffect(() => {
@@ -653,6 +667,19 @@ export default function ProgressPage() {
     return fromLbs(differenceInLbs, current.unit);
   }
 
+  // Day 16: the weight entry logged closest in time to a given
+  // timestamp — used by the compare card to caption each photo.
+  function nearestWeightTo(ts) {
+    let best = null;
+    for (const log of logs) {
+      const diff = Math.abs(new Date(log.logged_at).getTime() - ts);
+      if (best === null || diff < best.diff) {
+        best = { log: log, diff: diff };
+      }
+    }
+    return best; // { log, diff } or null when there are no weights
+  }
+
   // Trend for one measurement: compares against the most recent OLDER
   // entry that actually has that measurement filled in (entries can
   // have blanks, so "the previous entry" isn't always enough).
@@ -685,11 +712,64 @@ export default function ProgressPage() {
     .filter((log) => cutoff === null || new Date(log.logged_at) >= cutoff)
     .reverse() // oldest first, so the line reads left → right
     .map((log) => ({
-      label: formatShortDate(log.logged_at),
+      ts: new Date(log.logged_at).getTime(), // real position in time
       weight: Number(
         fromLbs(toLbs(parseFloat(log.weight), log.unit), chartUnit).toFixed(1)
       ),
     }));
+
+  // The chart's visible time window: range start → now
+  // (on "All time" it starts at your first entry).
+  const domainEnd = Date.now();
+  const domainStart =
+    cutoff !== null
+      ? cutoff.getTime()
+      : chartData.length > 0
+      ? chartData[0].ts
+      : domainEnd - 86400000;
+
+  // Photo markers that fall inside the window (when toggled on)
+  const photoMarkers = showPhotoMarkers
+    ? photos.filter((photo) => {
+        const ts = new Date(photo.taken_at).getTime();
+        return ts >= domainStart && ts <= domainEnd;
+      })
+    : [];
+
+  // ---------- Day 16: compare-card selections ----------
+  // Defaults: oldest photo as Before, newest as After (the photos
+  // list is newest-first). Picking from the dropdowns overrides.
+  const beforePhoto =
+    photos.find((photo) => photo.id === compareBeforeId) ||
+    (photos.length > 0 ? photos[photos.length - 1] : null);
+  const afterPhoto =
+    photos.find((photo) => photo.id === compareAfterId) ||
+    (photos.length > 0 ? photos[0] : null);
+
+  const beforeTs = beforePhoto
+    ? new Date(beforePhoto.taken_at).getTime()
+    : null;
+  const afterTs = afterPhoto ? new Date(afterPhoto.taken_at).getTime() : null;
+  const beforeNearest = beforeTs !== null ? nearestWeightTo(beforeTs) : null;
+  const afterNearest = afterTs !== null ? nearestWeightTo(afterTs) : null;
+
+  // Weight change between the two photos' nearest weigh-ins,
+  // shown in the chart unit.
+  let compareChange = null;
+  let compareDays = null;
+  if (
+    beforeNearest &&
+    afterNearest &&
+    beforePhoto &&
+    afterPhoto &&
+    beforePhoto.id !== afterPhoto.id
+  ) {
+    const differenceInLbs =
+      toLbs(parseFloat(afterNearest.log.weight), afterNearest.log.unit) -
+      toLbs(parseFloat(beforeNearest.log.weight), beforeNearest.log.unit);
+    compareChange = fromLbs(differenceInLbs, chartUnit);
+    compareDays = Math.round(Math.abs(afterTs - beforeTs) / 86400000);
+  }
 
   // ---------- page ----------
 
@@ -760,7 +840,7 @@ export default function ProgressPage() {
               Weight over time
             </h2>
 
-            {/* range filter buttons */}
+            {/* range filter buttons + photo-marker toggle */}
             <div className="flex flex-wrap gap-2">
               {RANGES.map((rangeOption) => (
                 <button
@@ -776,6 +856,21 @@ export default function ProgressPage() {
                   {rangeOption.label}
                 </button>
               ))}
+
+              {photos.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowPhotoMarkers((previous) => !previous)}
+                  title="Show photo days on the chart"
+                  className={
+                    showPhotoMarkers
+                      ? "px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-300 text-sm font-semibold"
+                      : "px-3 py-1.5 rounded-lg bg-slate-800 text-slate-400 text-sm hover:bg-slate-700"
+                  }
+                >
+                  📷 Photos
+                </button>
+              )}
             </div>
           </div>
 
@@ -788,15 +883,19 @@ export default function ProgressPage() {
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart
                   data={chartData}
-                  margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+                  margin={{ top: 20, right: 10, left: 0, bottom: 5 }}
                 >
                   <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" />
                   <XAxis
-                    dataKey="label"
+                    dataKey="ts"
+                    type="number"
+                    scale="time"
+                    domain={[domainStart, domainEnd]}
+                    tickFormatter={(ts) => formatShortDate(ts)}
                     tick={{ fill: "#94a3b8", fontSize: 12 }}
                     tickLine={false}
                     axisLine={{ stroke: "#334155" }}
-                    minTickGap={24}
+                    minTickGap={40}
                   />
                   <YAxis
                     domain={["auto", "auto"]}
@@ -813,8 +912,26 @@ export default function ProgressPage() {
                     }}
                     labelStyle={{ color: "#94a3b8" }}
                     itemStyle={{ color: "#34d399" }}
+                    labelFormatter={(ts) => formatDate(ts)}
                     formatter={(value) => [`${value} ${chartUnit}`, "Weight"]}
                   />
+
+                  {/* 📷 a dashed amber line on every photo day */}
+                  {photoMarkers.map((photo) => (
+                    <ReferenceLine
+                      key={photo.id}
+                      x={new Date(photo.taken_at).getTime()}
+                      stroke="#f59e0b"
+                      strokeDasharray="4 4"
+                      strokeOpacity={0.7}
+                      label={{
+                        value: "📷",
+                        position: "top",
+                        fontSize: 13,
+                      }}
+                    />
+                  ))}
+
                   <Line
                     type="monotone"
                     dataKey="weight"
@@ -826,6 +943,12 @@ export default function ProgressPage() {
                 </LineChart>
               </ResponsiveContainer>
             </div>
+          )}
+
+          {showPhotoMarkers && photoMarkers.length > 0 && (
+            <p className="text-sm text-slate-500 mt-3">
+              📷 Dashed lines mark days you took a progress photo.
+            </p>
           )}
 
           {hasMixedUnits && (
@@ -1432,6 +1555,186 @@ export default function ProgressPage() {
                       </div>
                     ))}
                   </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Day 16: compare photos — drop-down */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+            <button
+              type="button"
+              onClick={() => setShowCompare((previous) => !previous)}
+              aria-expanded={showCompare}
+              className="w-full flex items-center justify-between text-left"
+            >
+              <div>
+                <h2 className="text-lg font-semibold text-white">
+                  Compare photos
+                </h2>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Before &amp; after, side by side
+                </p>
+              </div>
+              <span className="text-slate-400">
+                {showCompare ? "▾" : "▸"}
+              </span>
+            </button>
+
+            {showCompare && (
+              <div className="mt-4">
+                {photos.length < 2 ? (
+                  <p className="text-slate-500">
+                    Upload at least two photos and you can compare any pair
+                    here.
+                  </p>
+                ) : (
+                  <>
+                    {/* pickers — default to oldest vs newest */}
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="block text-sm text-slate-400 mb-1">
+                          Before
+                        </label>
+                        <select
+                          value={beforePhoto ? beforePhoto.id : ""}
+                          onChange={(event) =>
+                            setCompareBeforeId(event.target.value)
+                          }
+                          className={inputClasses}
+                        >
+                          {photos.map((photo) => (
+                            <option key={photo.id} value={photo.id}>
+                              {formatDate(photo.taken_at)}
+                              {photo.caption ? ` — ${photo.caption}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm text-slate-400 mb-1">
+                          After
+                        </label>
+                        <select
+                          value={afterPhoto ? afterPhoto.id : ""}
+                          onChange={(event) =>
+                            setCompareAfterId(event.target.value)
+                          }
+                          className={inputClasses}
+                        >
+                          {photos.map((photo) => (
+                            <option key={photo.id} value={photo.id}>
+                              {formatDate(photo.taken_at)}
+                              {photo.caption ? ` — ${photo.caption}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* side-by-side */}
+                    <div className="grid grid-cols-2 gap-4">
+                      {[
+                        {
+                          tag: "Before",
+                          photo: beforePhoto,
+                          nearest: beforeNearest,
+                        },
+                        {
+                          tag: "After",
+                          photo: afterPhoto,
+                          nearest: afterNearest,
+                        },
+                      ].map((side) => (
+                        <div
+                          key={side.tag}
+                          className="bg-slate-800 rounded-lg overflow-hidden border border-slate-700"
+                        >
+                          {side.photo && side.photo.url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={side.photo.url}
+                              alt={`${side.tag} progress photo`}
+                              className="w-full h-56 object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-56 flex items-center justify-center text-slate-500 text-sm">
+                              Couldn't load image
+                            </div>
+                          )}
+
+                          <div className="p-3">
+                            <p className="text-xs font-semibold text-emerald-400 uppercase tracking-wide">
+                              {side.tag}
+                            </p>
+                            <p className="text-sm text-white font-medium mt-0.5">
+                              {side.photo
+                                ? formatDate(side.photo.taken_at)
+                                : "—"}
+                            </p>
+                            {side.photo && side.photo.caption && (
+                              <p className="text-sm text-slate-400 mt-0.5">
+                                {side.photo.caption}
+                              </p>
+                            )}
+                            {side.nearest && (
+                              <p className="text-sm text-slate-400 mt-0.5">
+                                ⚖️{" "}
+                                {parseFloat(
+                                  side.nearest.log.weight
+                                ).toFixed(1)}{" "}
+                                {side.nearest.log.unit}
+                                <span className="text-slate-500">
+                                  {" "}
+                                  · {formatDate(side.nearest.log.logged_at)}
+                                </span>
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* the change line */}
+                    {compareChange !== null && (
+                      <p className="text-center mt-4 text-base">
+                        {compareChange <= -0.05 ? (
+                          <span className="text-emerald-400 font-semibold">
+                            ↓ {Math.abs(compareChange).toFixed(1)} {chartUnit}
+                          </span>
+                        ) : compareChange >= 0.05 ? (
+                          <span className="text-slate-300 font-semibold">
+                            ↑ {compareChange.toFixed(1)} {chartUnit}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300 font-semibold">
+                            No change
+                          </span>
+                        )}
+                        <span className="text-slate-500">
+                          {" "}
+                          over {compareDays}{" "}
+                          {compareDays === 1 ? "day" : "days"}
+                        </span>
+                      </p>
+                    )}
+
+                    {beforeTs !== null &&
+                      afterTs !== null &&
+                      afterTs < beforeTs && (
+                        <p className="text-xs text-slate-500 text-center mt-2">
+                          Heads up: your "After" photo is older than your
+                          "Before" — swap them for a chronological
+                          comparison.
+                        </p>
+                      )}
+
+                    <p className="text-xs text-slate-500 mt-3">
+                      ⚖️ shows the weigh-in logged closest to each photo's
+                      date.
+                    </p>
+                  </>
                 )}
               </div>
             )}
