@@ -1,36 +1,40 @@
 "use client";
 
 // ============================================================
-// PROTOCOL PLANNER (v2)  —  goes in:  app/(app)/planner/page.js
-// (FULL REPLACEMENT of the Day 19 file.)
+// PROTOCOL PLANNER (v3)  —  goes in:  app/(app)/planner/page.js
+// (FULL REPLACEMENT of v2.)
 //
-// Day 20 · Chunk A: the planner can now SAVE a protocol as a
-// schedule (one row in the `reminders` table). The calendar
-// (Chunk B) and email reminders (Chunk C) will run on it.
+// Day 22 · Chunk B: dose TITRATION. The protocol's dose can now
+// vary over time, entered one of three ways:
 //
-// What's new vs. Day 19:
-//   1. A weekday picker for "per week" frequencies. The
-//      frequency dropdown SEEDS it (3×/week → Mon/Wed/Fri etc.)
-//      but you can tap days to adjust. The picked days drive
-//      BOTH the plan math and what gets saved — so the preview
-//      always matches the schedule exactly.
-//   2. "Once a week" now follows your start date's weekday
-//      (same dates as before — every 7 days from start — just
-//      adjustable now).
-//   3. A "Save as a schedule" section at the bottom of the
-//      plan card: email-reminder toggle + Save button. Saving
-//      inserts ONE row describing the recurrence rule — it does
-//      NOT log doses or touch inventory.
+//   FLAT     — one dose for the whole protocol (exactly as v2).
+//   BY PHASE — a list of "X dose for N weeks" rows, e.g.
+//              0.5mg for 4 weeks, then 1.0mg for 4 weeks. The
+//              plan length is the sum of the phases.
+//   BY WEEK  — a dose box for each week of the plan length.
+//              Behind the scenes, runs of equal weeks collapse
+//              into phases, so it stores the same shape as
+//              "by phase".
 //
-// ⚠️ FRAMING (lawyer checklist item #3): unchanged — this page
-// does arithmetic on a protocol YOU enter. Nothing here is a
-// recommendation or medical advice.
+// All titration shares ONE unit (you don't titrate mg→mcg).
+// The math (total amount, vials, cost, inventory coverage) sums
+// the VARYING dose across every dose date — it no longer assumes
+// a single flat dose. Saving writes `dose_phases` (Chunk A added
+// the column); `dose_amount` stores the starting dose so the
+// NOT-NULL column stays satisfied.
+//
+// ⚠️ FRAMING unchanged: this is math on a protocol YOU enter.
+// Not a recommendation, not medical advice.
+//
+// (Saving as a DRAFT comes in Chunk C — this still only saves a
+// live schedule.)
 // ============================================================
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { PEPTIDES, VIAL_SIZES, convertAmount } from "../../lib/peptides";
+import { doseOnDate } from "../../lib/schedule-helpers";
 
 // ---------------- helpers ----------------
 
@@ -43,7 +47,6 @@ function getTodayString() {
 }
 
 function dateFromString(value) {
-  // parse "YYYY-MM-DD" at local noon so it doesn't shift a day
   return new Date(`${value}T12:00:00`);
 }
 
@@ -66,24 +69,20 @@ function trim(value) {
   return parseFloat(parseFloat(value).toFixed(3)).toString();
 }
 
-// Interval frequencies step by a fixed number of days from the
-// start date. Everything else lands on picked weekdays.
 function intervalDays(freq) {
   if (freq === "daily") return 1;
   if (freq === "eod") return 2;
   return null;
 }
 
-// Default weekday set used to SEED the picker when you choose a
-// "per week" frequency (0=Sun ... 6=Sat). You can adjust after.
 function defaultWeekdays(freq, customN, startDateString) {
   if (freq === "weekly") return [dateFromString(startDateString).getDay()];
-  if (freq === "2x") return [1, 4]; // Mon, Thu
-  if (freq === "3x") return [1, 3, 5]; // Mon, Wed, Fri
-  if (freq === "5x") return [1, 2, 3, 4, 5]; // Mon–Fri
+  if (freq === "2x") return [1, 4];
+  if (freq === "3x") return [1, 3, 5];
+  if (freq === "5x") return [1, 2, 3, 4, 5];
   if (freq === "custom") {
     const n = Math.max(1, Math.min(7, Math.round(customN) || 1));
-    const order = [1, 2, 3, 4, 5, 6, 0]; // Mon..Sun
+    const order = [1, 2, 3, 4, 5, 6, 0];
     const set = new Set();
     for (let i = 0; i < n; i++) set.add(order[Math.floor((i * 7) / n)]);
     return [...set].sort((a, b) => a - b);
@@ -91,8 +90,6 @@ function defaultWeekdays(freq, customN, startDateString) {
   return [];
 }
 
-// All dose dates from start over `weeks`. Interval frequencies
-// step by N days; weekday frequencies land on the picked days.
 function generateDoseDates(start, weeks, freq, pickedDays) {
   const out = [];
   const end = new Date(start);
@@ -117,6 +114,29 @@ function generateDoseDates(start, weeks, freq, pickedDays) {
   return out;
 }
 
+// Turn the active dose-entry mode into a dose_phases array (or
+// null for flat). For "by week", collapse consecutive equal
+// doses into phases.
+function buildPhases(doseMode, phases, weeklyDoses) {
+  if (doseMode === "phases") {
+    return phases.map((p) => ({
+      dose: parseFloat(p.dose),
+      weeks: parseInt(p.weeks, 10),
+    }));
+  }
+  if (doseMode === "weekly") {
+    const out = [];
+    for (const raw of weeklyDoses) {
+      const dose = parseFloat(raw);
+      const last = out[out.length - 1];
+      if (last && last.dose === dose) last.weeks += 1;
+      else out.push({ dose, weeks: 1 });
+    }
+    return out;
+  }
+  return null;
+}
+
 const FREQUENCIES = [
   { key: "daily", label: "Every day" },
   { key: "eod", label: "Every other day" },
@@ -127,7 +147,6 @@ const FREQUENCIES = [
   { key: "custom", label: "Custom / week" },
 ];
 
-// Picker buttons in Mon-first order (value is JS getDay())
 const WEEKDAY_OPTIONS = [
   { value: 1, label: "Mon" },
   { value: 2, label: "Tue" },
@@ -136,6 +155,12 @@ const WEEKDAY_OPTIONS = [
   { value: 5, label: "Fri" },
   { value: 6, label: "Sat" },
   { value: 0, label: "Sun" },
+];
+
+const DOSE_MODES = [
+  { key: "flat", label: "Flat" },
+  { key: "phases", label: "By phase" },
+  { key: "weekly", label: "By week" },
 ];
 
 const inputClasses =
@@ -150,17 +175,20 @@ export default function PlannerPage() {
 
   // protocol inputs
   const [peptide, setPeptide] = useState("");
-  const [dose, setDose] = useState("");
   const [doseUnit, setDoseUnit] = useState("mg");
   const [freq, setFreq] = useState("weekly");
   const [customN, setCustomN] = useState("3");
   const [weeks, setWeeks] = useState("12");
   const [startDate, setStartDate] = useState(getTodayString());
-
-  // which weekdays the doses land on (for "per week" frequencies)
   const [pickedDays, setPickedDays] = useState([]);
 
-  // vial size + cost for the "how many to buy" math
+  // dosing mode + per-mode inputs
+  const [doseMode, setDoseMode] = useState("flat");
+  const [dose, setDose] = useState(""); // flat
+  const [phases, setPhases] = useState([{ dose: "", weeks: "4" }]); // by phase
+  const [weeklyDoses, setWeeklyDoses] = useState([]); // by week
+
+  // vial size + cost
   const [vialSize, setVialSize] = useState("");
   const [vialUnit, setVialUnit] = useState("mg");
   const [costPerVial, setCostPerVial] = useState("");
@@ -171,7 +199,7 @@ export default function PlannerPage() {
   const [saveError, setSaveError] = useState("");
   const [justSaved, setJustSaved] = useState(false);
 
-  // draw calculator (independent little tool)
+  // draw calculator
   const [drawVialMg, setDrawVialMg] = useState("");
   const [drawWaterMl, setDrawWaterMl] = useState("");
   const [drawDoseMg, setDrawDoseMg] = useState("");
@@ -197,9 +225,7 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // When the frequency (or custom N) changes, seed the weekday
-  // picker with a sensible default. You can tap days to adjust
-  // afterwards — your picks drive the math AND the save.
+  // seed weekday picker from frequency
   useEffect(() => {
     if (intervalDays(freq)) {
       setPickedDays([]);
@@ -209,10 +235,6 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [freq, customN]);
 
-  // "Once a week" follows the start date's weekday — if you move
-  // the start date, the weekly day moves with it (until you tap
-  // a different day yourself, after which your pick stays until
-  // the date changes again).
   useEffect(() => {
     if (freq === "weekly") {
       setPickedDays([dateFromString(startDate).getDay()]);
@@ -220,15 +242,39 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate]);
 
-  // Any edit to the protocol clears the "Saved ✓" message so it
-  // never lies about what's in the database.
+  // keep the per-week dose boxes in sync with the plan length
+  useEffect(() => {
+    if (doseMode !== "weekly") return;
+    const n = Math.max(0, Math.min(104, Math.round(parseFloat(weeks)) || 0));
+    setWeeklyDoses((current) => {
+      const next = current.slice(0, n);
+      while (next.length < n) {
+        next.push(next.length > 0 ? next[next.length - 1] : "");
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weeks, doseMode]);
+
+  // any edit clears the "Saved ✓" message
   useEffect(() => {
     setJustSaved(false);
     setSaveError("");
-  }, [peptide, dose, doseUnit, freq, customN, weeks, startDate, pickedDays, emailReminders]);
+  }, [
+    peptide,
+    doseUnit,
+    freq,
+    customN,
+    weeks,
+    startDate,
+    pickedDays,
+    doseMode,
+    dose,
+    phases,
+    weeklyDoses,
+    emailReminders,
+  ]);
 
-  // When the peptide changes, preset vial size + unit from the
-  // catalogue (and seed the draw calculator's vial amount).
   function handlePeptideChange(name) {
     setPeptide(name);
     const preset = VIAL_SIZES[name];
@@ -249,29 +295,87 @@ export default function PlannerPage() {
     );
   }
 
-  // ---------------- the math ----------------
-  const doseNumber = parseFloat(dose);
+  // phase editor handlers
+  function updatePhase(index, field, value) {
+    setPhases((current) =>
+      current.map((p, i) => (i === index ? { ...p, [field]: value } : p))
+    );
+  }
+  function addPhase() {
+    setPhases((current) => [...current, { dose: "", weeks: "4" }]);
+  }
+  function removePhase(index) {
+    setPhases((current) =>
+      current.length > 1 ? current.filter((_, i) => i !== index) : current
+    );
+  }
+  function updateWeek(index, value) {
+    setWeeklyDoses((current) =>
+      current.map((d, i) => (i === index ? value : d))
+    );
+  }
+
+  // ---------------- validity ----------------
   const weeksNumber = parseFloat(weeks);
   const usesWeekdays = intervalDays(freq) === null;
-  const validProtocol =
-    peptide &&
-    !isNaN(doseNumber) &&
-    doseNumber > 0 &&
-    !isNaN(weeksNumber) &&
-    weeksNumber > 0 &&
-    (!usesWeekdays || pickedDays.length > 0);
 
+  const flatValid =
+    doseMode === "flat" &&
+    !isNaN(parseFloat(dose)) &&
+    parseFloat(dose) > 0 &&
+    weeksNumber > 0;
+
+  const phasesValid =
+    doseMode === "phases" &&
+    phases.length >= 1 &&
+    phases.every(
+      (p) =>
+        parseFloat(p.dose) > 0 &&
+        Number.isInteger(parseInt(p.weeks, 10)) &&
+        parseInt(p.weeks, 10) >= 1
+    );
+
+  const weeklyValid =
+    doseMode === "weekly" &&
+    weeksNumber > 0 &&
+    weeklyDoses.length === Math.round(weeksNumber) &&
+    weeklyDoses.length > 0 &&
+    weeklyDoses.every((d) => parseFloat(d) > 0);
+
+  const doseValid = flatValid || phasesValid || weeklyValid;
+  const validProtocol =
+    peptide && doseValid && (!usesWeekdays || pickedDays.length > 0);
+
+  // plan length depends on mode
+  const effectiveWeeks =
+    doseMode === "phases"
+      ? phases.reduce((sum, p) => sum + (parseInt(p.weeks, 10) || 0), 0)
+      : Math.round(weeksNumber) || 0;
+
+  // ---------------- the math ----------------
   let plan = null;
   if (validProtocol) {
+    const builtPhases = buildPhases(doseMode, phases, weeklyDoses);
+    const previewSchedule = {
+      start_date: startDate,
+      dose_amount: doseMode === "flat" ? parseFloat(dose) : null,
+      dose_phases: doseMode === "flat" ? null : builtPhases,
+    };
+
     const dates = generateDoseDates(
       dateFromString(startDate),
-      weeksNumber,
+      effectiveWeeks,
       freq,
       pickedDays
     );
-    const totalDoses = dates.length;
-    const totalAmount = totalDoses * doseNumber; // in doseUnit
-    const dosesPerWeek = totalDoses / weeksNumber;
+    const dateDoses = dates.map((d) => ({
+      date: d,
+      dose: doseOnDate(previewSchedule, d),
+    }));
+
+    const totalDoses = dateDoses.length;
+    const totalAmount = dateDoses.reduce((sum, dd) => sum + dd.dose, 0);
+    const dosesPerWeek = effectiveWeeks > 0 ? totalDoses / effectiveWeeks : 0;
 
     // vials needed at the chosen vial size
     const vialSizeNumber = parseFloat(vialSize);
@@ -286,12 +390,14 @@ export default function PlannerPage() {
       }
     }
 
-    // current inventory coverage for this peptide
+    // current inventory coverage for this peptide (in doseUnit)
     let remainingInDoseUnit = 0;
     let inventoryMismatch = false;
     let hasInventory = false;
     for (const item of inventory) {
-      if (item.peptide_name.trim().toLowerCase() !== peptide.trim().toLowerCase())
+      if (
+        item.peptide_name.trim().toLowerCase() !== peptide.trim().toLowerCase()
+      )
         continue;
       hasInventory = true;
       const converted = convertAmount(
@@ -305,11 +411,22 @@ export default function PlannerPage() {
       }
       remainingInDoseUnit += converted;
     }
-    const weeklyUse = dosesPerWeek * doseNumber;
-    const daysOfSupply =
-      hasInventory && weeklyUse > 0
-        ? Math.floor((remainingInDoseUnit / weeklyUse) * 7)
-        : null;
+
+    // simulate how far current inventory stretches across the
+    // (possibly varying) doses — works for flat AND titrated
+    let supply = remainingInDoseUnit;
+    let dosesCovered = 0;
+    let coverUntil = null;
+    if (hasInventory) {
+      for (const dd of dateDoses) {
+        if (supply + 1e-9 >= dd.dose) {
+          supply -= dd.dose;
+          dosesCovered++;
+          coverUntil = dd.date;
+        } else break;
+      }
+    }
+    const coversAll = hasInventory && dosesCovered === dateDoses.length;
 
     // cost
     const costNumber = parseFloat(costPerVial);
@@ -319,18 +436,21 @@ export default function PlannerPage() {
         : null;
 
     plan = {
-      dates,
+      dateDoses,
       totalDoses,
       totalAmount,
       dosesPerWeek,
       vialsNeeded,
       vialUnitMismatch,
       vialSizeNumber,
-      daysOfSupply,
       hasInventory,
       inventoryMismatch,
       remainingInDoseUnit,
+      dosesCovered,
+      coverUntil,
+      coversAll,
       estCost,
+      titrated: doseMode !== "flat",
     };
   }
 
@@ -340,22 +460,30 @@ export default function PlannerPage() {
     setSaving(true);
     setSaveError("");
 
-    // end_date = last day of the protocol window (inclusive)
     const startObj = dateFromString(startDate);
     const endObj = new Date(startObj);
-    endObj.setDate(endObj.getDate() + Math.round(weeksNumber * 7) - 1);
+    endObj.setDate(endObj.getDate() + Math.round(effectiveWeeks * 7) - 1);
+
+    const builtPhases = buildPhases(doseMode, phases, weeklyDoses);
+    const startingDose =
+      doseMode === "flat"
+        ? parseFloat(dose)
+        : builtPhases.length > 0
+        ? builtPhases[0].dose
+        : 0;
 
     const interval = intervalDays(freq);
     const row = {
       user_id: userId,
       peptide_name: peptide,
-      dose_amount: doseNumber,
+      dose_amount: startingDose, // NOT-NULL column; for titration = starting dose
+      dose_phases: doseMode === "flat" ? null : builtPhases,
       unit: doseUnit,
       interval_days: interval ? interval : null,
       days_of_week: interval ? null : [...pickedDays].sort((a, b) => a - b),
       start_date: startDate,
       end_date: toDateString(endObj),
-      duration_weeks: weeksNumber,
+      duration_weeks: effectiveWeeks,
       email_reminders: emailReminders,
       active: true,
     };
@@ -375,9 +503,9 @@ export default function PlannerPage() {
   const dd = parseFloat(drawDoseMg);
   let draw = null;
   if (!isNaN(dv) && dv > 0 && !isNaN(dw) && dw > 0 && !isNaN(dd) && dd > 0) {
-    const concentration = dv / dw; // mg per mL
+    const concentration = dv / dw;
     const ml = dd / concentration;
-    const units = ml * 100; // U-100 insulin syringe: 1 mL = 100 units
+    const units = ml * 100;
     draw = { concentration, ml, units, overdraw: dd > dv };
   }
 
@@ -397,8 +525,8 @@ export default function PlannerPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Protocol Planner</h1>
         <p className="text-slate-400 mt-1">
-          Enter a protocol and the app works out the supply, cost, and timing —
-          then save it as a schedule.
+          Enter a protocol — flat or titrated — and the app works out the
+          supply, cost, and timing, then save it as a schedule.
         </p>
       </div>
 
@@ -429,37 +557,7 @@ export default function PlannerPage() {
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm text-slate-400 mb-1">
-                Dose per injection
-              </label>
-              <input
-                type="number"
-                step="0.001"
-                min="0"
-                placeholder="0.0"
-                value={dose}
-                onChange={(e) => setDose(e.target.value)}
-                className={inputClasses}
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-slate-400 mb-1">Unit</label>
-              <select
-                value={doseUnit}
-                onChange={(e) => setDoseUnit(e.target.value)}
-                className={inputClasses}
-              >
-                {["mg", "mcg", "IU"].map((u) => (
-                  <option key={u} value={u}>
-                    {u}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
+          {/* frequency */}
           <div>
             <label className="block text-sm text-slate-400 mb-1">
               How often
@@ -495,7 +593,6 @@ export default function PlannerPage() {
             </div>
           )}
 
-          {/* weekday picker — only for "per week" frequencies */}
           {usesWeekdays ? (
             <div>
               <label className="block text-sm text-slate-400 mb-1">
@@ -532,35 +629,196 @@ export default function PlannerPage() {
             </p>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm text-slate-400 mb-1">
-                Plan length (weeks)
-              </label>
-              <input
-                type="number"
-                min="1"
-                max="104"
-                step="1"
-                value={weeks}
-                onChange={(e) => setWeeks(e.target.value)}
-                className={inputClasses}
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-slate-400 mb-1">
-                Start date
-              </label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className={`${inputClasses} [color-scheme:dark]`}
-              />
-            </div>
+          {/* start date */}
+          <div>
+            <label className="block text-sm text-slate-400 mb-1">
+              Start date
+            </label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className={`${inputClasses} [color-scheme:dark]`}
+            />
           </div>
 
-          {/* vial size + cost for the buy math */}
+          {/* ---------- dosing ---------- */}
+          <div className="pt-2 border-t border-slate-800 space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">
+                  Dosing
+                </label>
+                <div className="flex gap-2">
+                  {DOSE_MODES.map((m) => (
+                    <button
+                      key={m.key}
+                      type="button"
+                      onClick={() => setDoseMode(m.key)}
+                      className={
+                        doseMode === m.key
+                          ? "px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-sm font-semibold"
+                          : "px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 text-sm hover:bg-slate-700"
+                      }
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">
+                  Unit{" "}
+                  {doseMode !== "flat" && (
+                    <span className="text-slate-500">(all doses)</span>
+                  )}
+                </label>
+                <select
+                  value={doseUnit}
+                  onChange={(e) => setDoseUnit(e.target.value)}
+                  className={inputClasses}
+                >
+                  {["mg", "mcg", "IU"].map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* plan length: editable for flat/weekly, derived for phases */}
+            {doseMode === "phases" ? (
+              <p className="text-sm text-slate-400">
+                Plan length:{" "}
+                <span className="text-white font-semibold">
+                  {effectiveWeeks} {effectiveWeeks === 1 ? "week" : "weeks"}
+                </span>{" "}
+                <span className="text-slate-500">(summed from your phases)</span>
+              </p>
+            ) : (
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">
+                  Plan length (weeks)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="104"
+                  step="1"
+                  value={weeks}
+                  onChange={(e) => setWeeks(e.target.value)}
+                  className={inputClasses}
+                />
+              </div>
+            )}
+
+            {/* FLAT dose input */}
+            {doseMode === "flat" && (
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">
+                  Dose per injection
+                </label>
+                <input
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  placeholder="0.0"
+                  value={dose}
+                  onChange={(e) => setDose(e.target.value)}
+                  className={inputClasses}
+                />
+              </div>
+            )}
+
+            {/* BY PHASE editor */}
+            {doseMode === "phases" && (
+              <div className="space-y-2">
+                <label className="block text-sm text-slate-400">
+                  Phases <span className="text-slate-500">(dose × weeks)</span>
+                </label>
+                {phases.map((p, index) => (
+                  <div key={index} className="flex gap-2 items-center">
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      placeholder="dose"
+                      value={p.dose}
+                      onChange={(e) => updatePhase(index, "dose", e.target.value)}
+                      className={inputClasses}
+                    />
+                    <span className="text-slate-500 text-sm">{doseUnit} ×</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="104"
+                      step="1"
+                      placeholder="wks"
+                      value={p.weeks}
+                      onChange={(e) =>
+                        updatePhase(index, "weeks", e.target.value)
+                      }
+                      className="w-20 bg-slate-800 text-white px-3 py-3 rounded-lg border border-slate-700 focus:border-emerald-500 focus:outline-none"
+                    />
+                    <span className="text-slate-500 text-sm">wk</span>
+                    <button
+                      type="button"
+                      onClick={() => removePhase(index)}
+                      disabled={phases.length === 1}
+                      className="text-slate-500 hover:text-red-400 disabled:opacity-30 px-1"
+                      title="Remove phase"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addPhase}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700"
+                >
+                  ＋ Add phase
+                </button>
+              </div>
+            )}
+
+            {/* BY WEEK editor */}
+            {doseMode === "weekly" && (
+              <div className="space-y-2">
+                <label className="block text-sm text-slate-400">
+                  Dose each week{" "}
+                  <span className="text-slate-500">({doseUnit})</span>
+                </label>
+                {weeklyDoses.length === 0 ? (
+                  <p className="text-xs text-amber-400">
+                    Set a plan length above to get a box per week.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {weeklyDoses.map((d, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <span className="text-xs text-slate-500 w-12 shrink-0">
+                          Wk {index + 1}
+                        </span>
+                        <input
+                          type="number"
+                          step="0.001"
+                          min="0"
+                          placeholder="0.0"
+                          value={d}
+                          onChange={(e) => updateWeek(index, e.target.value)}
+                          className="w-full bg-slate-800 text-white px-3 py-2 rounded-lg border border-slate-700 focus:border-emerald-500 focus:outline-none"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* vial size + cost */}
           <div className="pt-2 border-t border-slate-800">
             <p className="text-sm text-slate-400 mb-2">
               Vial size to plan around
@@ -636,13 +894,11 @@ export default function PlannerPage() {
         {/* ---------- RIGHT: results ---------- */}
         <div className="space-y-6">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-white mb-4">
-              The plan
-            </h2>
+            <h2 className="text-lg font-semibold text-white mb-4">The plan</h2>
 
             {!validProtocol ? (
               <p className="text-slate-500">
-                Fill in a peptide, dose, frequency, and length and your plan
+                Fill in a peptide, frequency, length, and dose and your plan
                 appears here.
               </p>
             ) : (
@@ -656,7 +912,11 @@ export default function PlannerPage() {
                   <Stat
                     label="Total needed"
                     value={`${trim(plan.totalAmount)} ${doseUnit}`}
-                    sub={`over ${trim(weeksNumber)} weeks`}
+                    sub={
+                      plan.titrated
+                        ? `titrated over ${effectiveWeeks} weeks`
+                        : `over ${effectiveWeeks} weeks`
+                    }
                   />
                   <Stat
                     label="Vials to buy"
@@ -701,21 +961,26 @@ export default function PlannerPage() {
                       inventory yet — add it there to see how long your current
                       supply lasts.
                     </p>
-                  ) : plan.daysOfSupply !== null ? (
+                  ) : plan.dosesCovered > 0 ? (
                     <p className="text-sm text-slate-300">
-                      Your current inventory (
-                      {trim(plan.remainingInDoseUnit)} {doseUnit}) covers about{" "}
+                      Your current inventory ({trim(plan.remainingInDoseUnit)}{" "}
+                      {doseUnit}) covers about{" "}
                       <span className="text-white font-semibold">
-                        {plan.daysOfSupply} days
-                      </span>{" "}
-                      (~{trim(plan.daysOfSupply / 7)} weeks) at this protocol.
+                        {plan.dosesCovered}{" "}
+                        {plan.dosesCovered === 1 ? "dose" : "doses"}
+                      </span>
+                      {plan.coversAll ? (
+                        <span> — the full protocol.</span>
+                      ) : (
+                        <span> — through {formatDate(plan.coverUntil)}.</span>
+                      )}
                       {plan.inventoryMismatch &&
                         " (Some vials in another unit were skipped.)"}
                     </p>
                   ) : (
                     <p className="text-sm text-slate-400">
-                      Couldn't compute coverage from your current inventory
-                      units.
+                      Your current inventory ({trim(plan.remainingInDoseUnit)}{" "}
+                      {doseUnit}) isn't enough for even the first dose.
                     </p>
                   )}
                 </div>
@@ -725,35 +990,42 @@ export default function PlannerPage() {
                   <p className="text-sm text-slate-400 mb-2">
                     Upcoming doses{" "}
                     <span className="text-slate-500">
-                      (first {Math.min(14, plan.dates.length)})
+                      (first {Math.min(14, plan.dateDoses.length)})
                     </span>
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    {plan.dates.slice(0, 14).map((date, index) => (
+                    {plan.dateDoses.slice(0, 14).map((dd, index) => (
                       <span
                         key={index}
                         className="text-xs bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-slate-300"
                       >
-                        {formatDate(date)}
+                        {formatDate(dd.date)}
+                        {plan.titrated && (
+                          <span className="text-emerald-400">
+                            {" "}
+                            · {trim(dd.dose)}
+                            {doseUnit}
+                          </span>
+                        )}
                       </span>
                     ))}
-                    {plan.dates.length > 14 && (
+                    {plan.dateDoses.length > 14 && (
                       <span className="text-xs text-slate-500 px-2 py-1">
-                        +{plan.dates.length - 14} more
+                        +{plan.dateDoses.length - 14} more
                       </span>
                     )}
                   </div>
                 </div>
 
-                {/* ---------- save as a schedule ---------- */}
+                {/* save as a schedule */}
                 <div className="pt-4 border-t border-slate-800 space-y-3">
                   <h3 className="text-sm font-semibold text-white">
                     Save as a schedule
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Saving stores this recurrence rule so the calendar and
-                    reminders can use it. It doesn't log any doses or touch
-                    your inventory.
+                    Saving stores this recurrence rule (including any titration)
+                    so the calendar and reminders can use it. It doesn't log any
+                    doses or touch your inventory.
                   </p>
 
                   <label className="flex items-start gap-3 cursor-pointer">
@@ -766,8 +1038,7 @@ export default function PlannerPage() {
                     <span className="text-sm text-slate-300">
                       Email me on dose days
                       <span className="block text-xs text-slate-500">
-                        Email sending gets wired up later in this build phase —
-                        your preference is stored with the schedule now.
+                        The reminder states the dose that applies that day.
                       </span>
                     </span>
                   </label>
@@ -783,9 +1054,8 @@ export default function PlannerPage() {
 
                   {justSaved && (
                     <p className="text-sm text-emerald-400">
-                      ✓ Schedule saved. You can verify the row in Supabase →
-                      Table Editor → reminders. (It'll appear on the Calendar
-                      page next.)
+                      ✓ Schedule saved. Check it on the Calendar page — a
+                      titrated schedule shows the dose changing over time.
                     </p>
                   )}
                   {saveError && (
