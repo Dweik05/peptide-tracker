@@ -1,12 +1,11 @@
 "use client";
 
 // ============================================================
-// SIDEBAR (v4)  —  goes in:  app/components/Sidebar.js
-// (FULL REPLACEMENT of v3.)
+// SIDEBAR (v5)  —  goes in:  app/components/Sidebar.js
+// (FULL REPLACEMENT of v4.)
 //
-// Day 20 · Chunk B: ONE change — a new 📅 Calendar link right
-// after Planner, since the calendar runs on what the planner
-// saves. Everything else is identical to v3.
+// Day 21 · Chunk A: ONE change — a new 🏆 Goals & Streaks link
+// right after Calendar. Everything else is identical to v4.
 // ============================================================
 
 import Link from "next/link";
@@ -21,6 +20,7 @@ const links = [
   { href: "/inventory", label: "Inventory", icon: "📦" },
   { href: "/planner", label: "Planner", icon: "🧮" },
   { href: "/calendar", label: "Calendar", icon: "📅" },
+  { href: "/goals", label: "Goals & Streaks", icon: "🏆" },
   { href: "/lab-results", label: "Lab Results", icon: "🧪" },
   { href: "/side-effects", label: "Side Effects", icon: "⚠️" },
   { href: "/peptides", label: "Peptide Encyclopedia", icon: "📚" },
