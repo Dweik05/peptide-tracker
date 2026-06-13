@@ -1,24 +1,25 @@
 // ============================================================
 // SCHEDULE HELPERS  —  goes in:  app/lib/schedule-helpers.js
-// (NEW file — create it inside app/lib/)
+// (FULL REPLACEMENT — adds doseOnDate for titration. Every
+//  existing export is byte-identical; only the new function at
+//  the bottom is added, so the calendar/email keep working.)
 //
-// Day 20 · Chunk B: pure date math for schedules saved in the
-// `reminders` table. There's NO React in here on purpose —
-// that's what lets the Calendar page (browser) and the email
-// reminder route (server, Chunk C) share the exact same logic,
-// so they can never disagree about which days are dose days.
+// Pure date math for schedules saved in the `reminders` table.
+// No React on purpose — the Calendar page (browser) and the
+// email reminder route (server) share this exact logic so they
+// can never disagree about which days are dose days or what
+// dose applies.
 //
 // A schedule row looks like:
 //   {
 //     peptide_name, dose_amount, unit,
-//     interval_days: 1 | 2 | null,      ← daily / every other day
-//     days_of_week: [1,3,5] | null,     ← 0=Sun ... 6=Sat
+//     dose_phases: [{dose, weeks}, ...] | null,  ← titration (NEW)
+//     interval_days: 1 | 2 | null,
+//     days_of_week: [1,3,5] | null,
 //     start_date: "YYYY-MM-DD",
-//     end_date:   "YYYY-MM-DD",         ← last day, inclusive
+//     end_date:   "YYYY-MM-DD",
 //     active: true/false, ...
 //   }
-// Exactly one of interval_days / days_of_week is set (the
-// database enforces this with a check constraint).
 // ============================================================
 
 // Parse "YYYY-MM-DD" at local noon so timezone shifts can never
@@ -40,15 +41,14 @@ export function atNoon(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12);
 }
 
-// Whole days between two noon-anchored dates. Math.round
-// absorbs the ±1 hour a daylight-saving change can introduce.
+// Whole days between two noon-anchored dates. Math.round absorbs
+// the ±1 hour a daylight-saving change can introduce.
 function daysBetween(a, b) {
   return Math.round((b.getTime() - a.getTime()) / 86400000);
 }
 
 // THE core question: does this schedule put a dose on this date?
-// (Ignores `active` — callers decide whether paused schedules
-// count. Use dosesDueOn() below for the usual case.)
+// (Ignores `active` — use dosesDueOn() for the usual case.)
 export function isDoseDay(schedule, date) {
   const day = atNoon(date);
   const start = dateFromString(schedule.start_date);
@@ -69,15 +69,13 @@ export function isDoseDay(schedule, date) {
 }
 
 // All ACTIVE schedules that have a dose due on a given date.
-// This is what the calendar grid and the email route both call.
 export function dosesDueOn(schedules, date) {
   return (schedules || []).filter(
     (schedule) => schedule.active && isDoseDay(schedule, date)
   );
 }
 
-// Human-readable frequency for a schedule row, e.g.
-// "Every day", "Every other day", "Mon, Wed, Fri".
+// Human-readable frequency for a schedule row.
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON_FIRST_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
@@ -92,4 +90,33 @@ export function describeFrequency(schedule) {
       .join(", ");
   }
   return "—";
+}
+
+// ---------------- titration (NEW, Day 22) ----------------
+// dose_phases is an ordered array sharing the schedule's single
+// `unit`, e.g. [{ dose: 0.5, weeks: 4 }, { dose: 1.0, weeks: 4 }].
+// Each phase covers a span of whole weeks measured from start_date:
+// the first phase covers weeks 1–4, the next the following weeks,
+// and so on. A schedule with no dose_phases is a FLAT protocol and
+// returns dose_amount unchanged — so every existing schedule keeps
+// behaving exactly as before.
+export function doseOnDate(schedule, date) {
+  const phases = schedule.dose_phases;
+  if (!Array.isArray(phases) || phases.length === 0) {
+    return schedule.dose_amount; // flat protocol — unchanged behavior
+  }
+
+  const start = dateFromString(schedule.start_date);
+  const day = atNoon(date);
+  const weeksSinceStart = Math.floor(daysBetween(start, day) / 7);
+
+  if (weeksSinceStart < 0) return Number(phases[0].dose); // before start (guard)
+
+  let cumulativeWeeks = 0;
+  for (const phase of phases) {
+    cumulativeWeeks += Number(phase.weeks) || 0;
+    if (weeksSinceStart < cumulativeWeeks) return Number(phase.dose);
+  }
+  // past the final phase — clamp to the last dose
+  return Number(phases[phases.length - 1].dose);
 }

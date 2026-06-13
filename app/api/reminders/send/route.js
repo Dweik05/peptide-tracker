@@ -1,40 +1,21 @@
 // ============================================================
 // EMAIL REMINDER ROUTE  —  goes in:
 //   app/api/reminders/send/route.js
-// (NEW — create the folders:  api  →  reminders  →  send
-//  inside app/, then a "route.js" inside "send".
-//  NOTE: route.js, NOT page.js — that's what makes it an API
-//  route instead of a page.)
+// (FULL REPLACEMENT of the Chunk C / Day 20 version.)
 //
-// Day 20 · Chunk C: your first backend route.
-//
-// WHAT THIS IS: files at app/api/.../route.js never render in
-// the browser. They run ONLY on the server and answer web
-// requests at their URL — this one answers GET requests at
-//   /api/reminders/send
-// Because this code never leaves the server, it can safely use
-// secret keys that must never appear in browser code.
-//
-// WHAT IT DOES when called (by you in dev, by Vercel Cron once
-// deployed — once per day):
-//   1. Checks the caller knows CRON_SECRET (strangers get 401)
-//   2. Finds every ACTIVE schedule with email reminders ON
-//      where TODAY is a dose day (same isDoseDay math as the
-//      calendar — they can never disagree)
-//   3. Skips any schedule already reminded today
-//   4. Sends ONE digest email per user via Resend
-//   5. Stamps last_reminder_sent = today so a second run the
-//      same day sends nothing
-//
-// It uses the SERVICE ROLE key — the server "master key" that
-// bypasses Row Level Security. That's required here because no
-// user is logged in (a clock is calling this, not a person) and
-// it must read every user's schedules. It's also why this route
-// keeps working after we properly re-enable RLS on Days 33–34.
+// Day 22 · Chunk A: ONE change — the digest now states the dose
+// that applies TODAY (via doseOnDate), so a titrated schedule
+// emails "0.5 mg" early on and "1 mg" later. Flat schedules are
+// unaffected. Everything else (the secret gate, the service-role
+// client, the dedupe stamp) is identical to before.
 // ============================================================
 
 import { createClient } from "@supabase/supabase-js";
-import { dateFromString, isDoseDay } from "../../../lib/schedule-helpers";
+import {
+  dateFromString,
+  isDoseDay,
+  doseOnDate,
+} from "../../../lib/schedule-helpers";
 
 // Never cache this route — it must run fresh every time.
 export const dynamic = "force-dynamic";
@@ -49,17 +30,13 @@ const APP_TIMEZONE = "America/Toronto";
 // Resend account email. Swap to your domain at launch.
 const FROM_ADDRESS = "Peptide Tracker <onboarding@resend.dev>";
 
-// today as "YYYY-MM-DD" in the app timezone (en-CA formats
-// dates exactly that way — handy)
+// today as "YYYY-MM-DD" in the app timezone
 function todayStringInAppTimezone() {
   return new Date().toLocaleDateString("en-CA", { timeZone: APP_TIMEZONE });
 }
 
 export async function GET(request) {
   // ---------- 1. gatekeeping ----------
-  // Accepted either way:
-  //   - Authorization: Bearer <CRON_SECRET>   (how Vercel Cron calls it)
-  //   - ?secret=<CRON_SECRET>                 (easy browser testing in dev)
   const secret = process.env.CRON_SECRET;
   const authHeader = request.headers.get("authorization");
   const querySecret = new URL(request.url).searchParams.get("secret");
@@ -130,7 +107,6 @@ export async function GET(request) {
   const sentScheduleIds = [];
 
   for (const [userId, userSchedules] of Object.entries(byUser)) {
-    // look up the user's login email (admin API — service role only)
     const { data: userData, error: userError } =
       await supabaseAdmin.auth.admin.getUserById(userId);
     const email = userData && userData.user ? userData.user.email : null;
@@ -140,10 +116,14 @@ export async function GET(request) {
       continue;
     }
 
+    // dose that applies TODAY for each schedule (titration-aware)
     const listItems = userSchedules
       .map(
         (s) =>
-          `<li style="margin:6px 0;"><strong>${s.peptide_name}</strong> &mdash; ${s.dose_amount} ${s.unit}</li>`
+          `<li style="margin:6px 0;"><strong>${s.peptide_name}</strong> &mdash; ${doseOnDate(
+            s,
+            today
+          )} ${s.unit}</li>`
       )
       .join("");
 

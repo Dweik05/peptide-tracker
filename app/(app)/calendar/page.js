@@ -1,21 +1,18 @@
 "use client";
 
 // ============================================================
-// CALENDAR (v3)  —  goes in:  app/(app)/calendar/page.js
-// (FULL REPLACEMENT of v2.)
+// CALENDAR (v4)  —  goes in:  app/(app)/calendar/page.js
+// (FULL REPLACEMENT of v3.)
 //
-// Same wall-calendar design as v2, with one engineering change:
+// Day 22 · Chunk A: ONE behavioral change — scheduled-dose
+// chips and the day-detail panel now show the dose that applies
+// on THAT date (via doseOnDate), so a titrated schedule shows
+// e.g. "RT · 0.5mg" in June and "RT · 1mg" in July. Flat
+// schedules are unaffected (doseOnDate returns their flat dose).
 //
-//   ALL LAYOUT-CRITICAL STYLES ARE INLINE ON PURPOSE.
-//   (the 7-column grid, hairline grid lines, cell heights,
-//    chip sizing + colors, today's ring)
-//
-// Why: inline styles don't depend on Tailwind's build step, so
-// a stale or incompletely-generated stylesheet can never turn
-// the calendar back into a single column. Do NOT "clean these
-// up" into Tailwind classes later — they're inline by design.
-// Cosmetic styles that the project already uses everywhere
-// (slate cards, text sizes, hover states) stay as classes.
+// Layout is unchanged from v3 — all layout-critical styles are
+// INLINE on purpose (see the note that was in v3). Do NOT
+// convert them to Tailwind classes.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -28,6 +25,7 @@ import {
   toDateString,
   dosesDueOn,
   describeFrequency,
+  doseOnDate,
 } from "../../lib/schedule-helpers";
 
 // 1 = week starts Monday · 0 = week starts Sunday
@@ -283,8 +281,9 @@ export default function CalendarPage() {
     { month: "long", year: "numeric" }
   );
 
-  const selectedScheduled = selectedDate
-    ? dosesDueOn(schedules, dateFromString(selectedDate))
+  const selectedDateObj = selectedDate ? dateFromString(selectedDate) : null;
+  const selectedScheduled = selectedDateObj
+    ? dosesDueOn(schedules, selectedDateObj)
     : [];
   const selectedLogged = selectedDate ? loggedMap[selectedDate] || [] : [];
 
@@ -372,11 +371,15 @@ export default function CalendarPage() {
                 const isToday = key === todayString;
                 const isSelected = key === selectedDate;
 
-                // chips: scheduled first, then logged, max 3 visible
+                // chips: scheduled first (dose that applies on THIS
+                // date), then logged, max 3 visible
                 const chips = [
                   ...scheduledHere.map((s) => ({
                     kind: "sched",
-                    text: `${shortName(s.peptide_name)} · ${s.dose_amount}${s.unit}`,
+                    text: `${shortName(s.peptide_name)} · ${doseOnDate(
+                      s,
+                      cellDate
+                    )}${s.unit}`,
                   })),
                   ...loggedHere.map((l) => ({
                     kind: "log",
@@ -484,7 +487,8 @@ export default function CalendarPage() {
                           <span className="text-white">
                             {schedule.peptide_name}
                           </span>{" "}
-                          · {schedule.dose_amount} {schedule.unit}
+                          · {doseOnDate(schedule, selectedDateObj)}{" "}
+                          {schedule.unit}
                         </li>
                       ))}
                     </ul>
@@ -611,9 +615,8 @@ export default function CalendarPage() {
             )}
 
             <p className="text-xs text-slate-500 mt-4">
-              Pausing hides a schedule from the calendar and (soon) stops its
-              emails — nothing is deleted. The ✉️ toggle controls email
-              reminders, which go live in the next chunk.
+              Pausing hides a schedule from the calendar and stops its emails —
+              nothing is deleted. The ✉️ toggle controls email reminders.
             </p>
           </div>
         </div>
