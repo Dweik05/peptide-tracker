@@ -1,21 +1,28 @@
 "use client";
 
 // ============================================================
-// INVENTORY PAGE  —  goes in:  app/(app)/inventory/page.js
-// (replaces the Step 1 version — paste over it all)
+// INVENTORY PAGE (v4)  —  goes in:  app/(app)/inventory/page.js
 //
-// Day 12, Step 2 changes:
-//   - Peptide name is now a real dropdown showing the FULL
-//     list (same "SM — Semaglutide" format as /log), imported
-//     from the shared app/lib/peptides.js — guaranteed name
-//     match for auto-deduct
-//   - Tap-to-fill vial-size presets: pick a peptide and its
-//     catalogue vial sizes appear as buttons; tapping fills
-//     the quantity AND sets the right unit
+// Day 24 · Chunk A: vial counts + bacteriostatic water.
 //
-// Everything else from Step 1 is unchanged: progress bars,
-// LOW STOCK at ≤20%, days/doses-left and cost-per-dose math
-// from your real dose history, lowest-stock-first sorting.
+//   VIAL COUNTS: enter a peptide as "vial size × number of
+//   vials" (e.g. 10 mg × 10). One vial is "open" and drains as
+//   you dose; the rest stay unopened. The open/unopened split
+//   is DERIVED from the running total you already track —
+//       unopened = floor(total ÷ vial size)
+//       open vial = total − unopened × vial size
+//   so a 1 mg dose off 100 mg shows "9/10 mg · 9 unopened", and
+//   the auto-deduct logic is unchanged.
+//
+//   BAC WATER: a separate item type (mL, bottles). It has no
+//   dose math, never auto-deducts, and never shows in the dose
+//   dropdowns — it just lives here so you can track it.
+//
+// Old rows (added before this update, with no vial_size) fall
+// back to the original "X of Y remaining" display.
+//
+// Requires the Day 24 SQL (adds vial_size, vial_count,
+// item_type) — run it first.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -33,7 +40,6 @@ const LOW_STOCK_PERCENT = 20;
 
 // ---------------- helper functions ----------------
 
-// Today's date as "YYYY-MM-DD" in YOUR timezone.
 function getTodayString() {
   const now = new Date();
   const year = now.getFullYear();
@@ -42,7 +48,6 @@ function getTodayString() {
   return `${year}-${month}-${day}`;
 }
 
-// Turns a database timestamp/date into e.g. "Jun 10, 2026"
 function formatDate(timestamp) {
   return new Date(timestamp).toLocaleDateString(undefined, {
     month: "short",
@@ -51,12 +56,26 @@ function formatDate(timestamp) {
   });
 }
 
-// Case-insensitive name match so "Semaglutide" = "semaglutide"
 function sameName(a, b) {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
-// Shared styling for inputs (matches the design system)
+// clean number: 10 -> "10", 8.5 -> "8.5", 9.004 -> "9.004"
+function cleanNum(n) {
+  return parseFloat(parseFloat(n).toFixed(3)).toString();
+}
+
+// derive the open-vial / unopened-vial split from the running
+// total. Returns null when there's no vial_size (old rows).
+function vialBreakdown(item) {
+  const size = parseFloat(item.vial_size);
+  const remaining = parseFloat(item.quantity_remaining);
+  if (!size || size <= 0 || isNaN(remaining)) return null;
+  const unopened = Math.floor((remaining + 1e-9) / size);
+  const open = Math.max(0, remaining - unopened * size);
+  return { size, remaining, unopened, open };
+}
+
 const inputClasses =
   "w-full bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-700 focus:border-emerald-500 focus:outline-none placeholder:text-slate-500";
 
@@ -67,12 +86,14 @@ export default function InventoryPage() {
   // ---------- state ----------
   const [userId, setUserId] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [items, setItems] = useState([]); // inventory rows
-  const [doses, setDoses] = useState([]); // last 90 days of dose logs
+  const [items, setItems] = useState([]);
+  const [doses, setDoses] = useState([]);
 
   // form fields
+  const [itemType, setItemType] = useState("peptide"); // peptide | bac_water
   const [peptideName, setPeptideName] = useState("");
-  const [quantity, setQuantity] = useState("");
+  const [vialSize, setVialSize] = useState("");
+  const [vialCount, setVialCount] = useState("1");
   const [invUnit, setInvUnit] = useState("mg");
   const [cost, setCost] = useState("");
   const [purchaseDate, setPurchaseDate] = useState(getTodayString());
@@ -83,18 +104,16 @@ export default function InventoryPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // ---------- load session + data when the page opens ----------
+  // ---------- load session + data ----------
   useEffect(() => {
     async function init() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-
       if (!session) {
         router.push("/login");
         return;
       }
-
       setUserId(session.user.id);
       await fetchInventory(session.user.id);
       await fetchRecentDoses(session.user.id);
@@ -104,7 +123,6 @@ export default function InventoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ---------- fetch this user's inventory ----------
   async function fetchInventory(uid) {
     const { data, error: fetchError } = await supabase
       .from("inventory")
@@ -123,7 +141,6 @@ export default function InventoryPage() {
     }
   }
 
-  // ---------- fetch the last 90 days of doses (for the math) ----------
   async function fetchRecentDoses(uid) {
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
@@ -136,7 +153,6 @@ export default function InventoryPage() {
       .order("logged_at", { ascending: false });
 
     if (fetchError) {
-      // Not fatal — the page works without estimates
       console.error("Couldn't load dose history:", fetchError.message);
       setDoses([]);
     } else {
@@ -149,15 +165,19 @@ export default function InventoryPage() {
     setError("");
     setSuccess("");
 
-    const name = peptideName.trim();
-    if (!name) {
-      setError("Select a peptide.");
+    const sizeNumber = parseFloat(vialSize);
+    if (!vialSize || isNaN(sizeNumber) || sizeNumber <= 0) {
+      setError(
+        itemType === "bac_water"
+          ? "Enter a valid bottle size (mL)."
+          : "Enter a valid vial size."
+      );
       return;
     }
 
-    const quantityNumber = parseFloat(quantity);
-    if (!quantity || isNaN(quantityNumber) || quantityNumber <= 0) {
-      setError("Enter a valid quantity above 0.");
+    const countNumber = parseInt(vialCount, 10);
+    if (!vialCount || isNaN(countNumber) || countNumber < 1) {
+      setError("Enter how many you have (1 or more).");
       return;
     }
 
@@ -172,14 +192,33 @@ export default function InventoryPage() {
       return;
     }
 
+    let name;
+    let unit;
+    if (itemType === "bac_water") {
+      name = "Bacteriostatic Water";
+      unit = "mL";
+    } else {
+      name = peptideName.trim();
+      unit = invUnit;
+      if (!name) {
+        setError("Select a peptide.");
+        return;
+      }
+    }
+
+    const totalAmount = sizeNumber * countNumber;
+
     setSaving(true);
 
     const { error: insertError } = await supabase.from("inventory").insert({
       user_id: userId,
       peptide_name: name,
-      quantity_total: quantityNumber,
-      quantity_remaining: quantityNumber, // starts full
-      unit: invUnit,
+      item_type: itemType,
+      vial_size: sizeNumber,
+      vial_count: countNumber,
+      quantity_total: totalAmount,
+      quantity_remaining: totalAmount, // starts full (all vials sealed)
+      unit: unit,
       cost: costNumber,
       purchase_date: purchaseDate || null,
       notes: notes.trim() === "" ? null : notes.trim(),
@@ -192,9 +231,10 @@ export default function InventoryPage() {
       return;
     }
 
-    setSuccess("Product added!");
+    setSuccess(itemType === "bac_water" ? "Bac water added!" : "Product added!");
     setPeptideName("");
-    setQuantity("");
+    setVialSize("");
+    setVialCount("1");
     setCost("");
     setNotes("");
     setPurchaseDate(getTodayString());
@@ -205,7 +245,7 @@ export default function InventoryPage() {
   // ---------- delete a product ----------
   async function handleDeleteItem(id) {
     const sure = window.confirm(
-      "Delete this product from your inventory? This can't be undone."
+      "Delete this from your inventory? This can't be undone."
     );
     if (!sure) return;
 
@@ -247,7 +287,7 @@ export default function InventoryPage() {
         dose.unit,
         item.unit
       );
-      if (converted === null) continue; // incompatible units, skip
+      if (converted === null) continue;
 
       doseSum = doseSum + converted;
       doseCount = doseCount + 1;
@@ -257,8 +297,7 @@ export default function InventoryPage() {
     }
 
     const dailyRate = usedLast30 / 30;
-    const daysLeft =
-      dailyRate > 0 ? Math.floor(remaining / dailyRate) : null;
+    const daysLeft = dailyRate > 0 ? Math.floor(remaining / dailyRate) : null;
 
     const averageDose = doseCount > 0 ? doseSum / doseCount : null;
     const dosesLeft =
@@ -277,17 +316,24 @@ export default function InventoryPage() {
     return { percentRemaining, daysLeft, dosesLeft, costPerDose };
   }
 
-  // sort lowest-stock first so urgent products surface
-  const sortedItems = [...items].sort(
+  // split peptides from bac water (old rows: null type = peptide)
+  const peptideItems = items.filter(
+    (i) => (i.item_type || "peptide") === "peptide"
+  );
+  const bacItems = items.filter((i) => i.item_type === "bac_water");
+
+  // sort peptides lowest-stock first
+  const sortedPeptides = [...peptideItems].sort(
     (a, b) =>
       statsForItem(a).percentRemaining - statsForItem(b).percentRemaining
   );
 
   // vial-size presets for the currently selected peptide (if any)
-  const presets = peptideName ? VIAL_SIZES[peptideName] : null;
+  const presets =
+    itemType === "peptide" && peptideName ? VIAL_SIZES[peptideName] : null;
 
-  // summary numbers
-  const lowStockCount = items.filter(
+  // summary numbers (peptides drive low-stock; spend covers all)
+  const lowStockCount = peptideItems.filter(
     (item) => statsForItem(item).percentRemaining <= LOW_STOCK_PERCENT
   ).length;
   const totalSpent = items.reduce(
@@ -323,9 +369,9 @@ export default function InventoryPage() {
       {items.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-            <p className="text-sm text-slate-400">Products tracked</p>
+            <p className="text-sm text-slate-400">Peptides tracked</p>
             <p className="text-2xl font-bold text-white mt-1">
-              {items.length}
+              {peptideItems.length}
             </p>
           </div>
 
@@ -357,128 +403,223 @@ export default function InventoryPage() {
         <div className="space-y-4">
           <StackSummary />
 
-          {sortedItems.length === 0 ? (
+          {peptideItems.length === 0 && bacItems.length === 0 ? (
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
               <p className="text-slate-500">
-                Nothing tracked yet — add your first vial or pen with the
-                form. Every dose you log subtracts from it automatically.
+                Nothing tracked yet — add your first vials with the form. Every
+                dose you log subtracts from your stock automatically.
               </p>
             </div>
           ) : (
-            sortedItems.map((item) => {
-              const stats = statsForItem(item);
-              const isLow = stats.percentRemaining <= LOW_STOCK_PERCENT;
+            <>
+              {sortedPeptides.map((item) => {
+                const stats = statsForItem(item);
+                const isLow = stats.percentRemaining <= LOW_STOCK_PERCENT;
+                const vb = vialBreakdown(item);
+                const total = parseFloat(item.quantity_total);
+                const remaining = parseFloat(item.quantity_remaining);
 
-              return (
-                <div
-                  key={item.id}
-                  className={`bg-slate-900 border rounded-xl p-6 ${
-                    isLow ? "border-red-500/40" : "border-slate-800"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h2 className="text-lg font-semibold text-white">
-                        {item.peptide_name}
-                        {isLow && (
-                          <span className="ml-2 text-xs font-semibold bg-red-500/10 border border-red-500/20 text-red-400 rounded-md px-2 py-0.5 align-middle">
-                            LOW STOCK
-                          </span>
+                return (
+                  <div
+                    key={item.id}
+                    className={`bg-slate-900 border rounded-xl p-6 ${
+                      isLow ? "border-red-500/40" : "border-slate-800"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h2 className="text-lg font-semibold text-white">
+                          {item.peptide_name}
+                          {isLow && (
+                            <span className="ml-2 text-xs font-semibold bg-red-500/10 border border-red-500/20 text-red-400 rounded-md px-2 py-0.5 align-middle">
+                              LOW STOCK
+                            </span>
+                          )}
+                        </h2>
+
+                        {vb ? (
+                          <>
+                            <p className="text-sm text-slate-300 mt-1">
+                              {vb.open > 0.0001 && (
+                                <>
+                                  🔓 Open vial:{" "}
+                                  <span className="text-white font-semibold">
+                                    {cleanNum(vb.open)}/{cleanNum(vb.size)}{" "}
+                                    {item.unit}
+                                  </span>{" "}
+                                  ·{" "}
+                                </>
+                              )}
+                              📦{" "}
+                              <span className="text-white font-semibold">
+                                {vb.unopened}
+                              </span>{" "}
+                              unopened {vb.unopened === 1 ? "vial" : "vials"}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              {cleanNum(remaining)} of {cleanNum(total)}{" "}
+                              {item.unit} total ({stats.percentRemaining.toFixed(0)}%)
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-sm text-slate-400 mt-0.5">
+                            {remaining.toFixed(2)} of {total.toFixed(2)}{" "}
+                            {item.unit} remaining (
+                            {stats.percentRemaining.toFixed(0)}%)
+                          </p>
                         )}
-                      </h2>
-                      <p className="text-sm text-slate-400 mt-0.5">
-                        {parseFloat(item.quantity_remaining).toFixed(2)} of{" "}
-                        {parseFloat(item.quantity_total).toFixed(2)}{" "}
-                        {item.unit} remaining (
-                        {stats.percentRemaining.toFixed(0)}%)
-                      </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteItem(item.id)}
+                        className="text-slate-500 hover:text-red-400 text-sm"
+                        title="Delete product"
+                      >
+                        ✕
+                      </button>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteItem(item.id)}
-                      className="text-slate-500 hover:text-red-400 text-sm"
-                      title="Delete product"
-                    >
-                      ✕
-                    </button>
-                  </div>
+                    {/* progress bar (overall stock) */}
+                    <div className="w-full bg-slate-800 rounded-full h-2 mt-3">
+                      <div
+                        className={`h-2 rounded-full ${
+                          isLow ? "bg-red-500" : "bg-emerald-500"
+                        }`}
+                        style={{
+                          width: `${Math.max(
+                            0,
+                            Math.min(100, stats.percentRemaining)
+                          )}%`,
+                        }}
+                      ></div>
+                    </div>
 
-                  {/* progress bar */}
-                  <div className="w-full bg-slate-800 rounded-full h-2 mt-3">
-                    <div
-                      className={`h-2 rounded-full ${
-                        isLow ? "bg-red-500" : "bg-emerald-500"
-                      }`}
-                      style={{
-                        width: `${Math.max(
-                          0,
-                          Math.min(100, stats.percentRemaining)
-                        )}%`,
-                      }}
-                    ></div>
-                  </div>
-
-                  {/* stats row */}
-                  <div className="flex flex-wrap gap-x-5 gap-y-1 mt-3 text-sm">
-                    <span>
-                      <span className="text-slate-500">Days left </span>
-                      <span className="text-white font-semibold">
-                        {stats.daysLeft !== null ? `~${stats.daysLeft}` : "—"}
-                      </span>
-                    </span>
-                    <span>
-                      <span className="text-slate-500">Doses left </span>
-                      <span className="text-white font-semibold">
-                        {stats.dosesLeft !== null
-                          ? `~${stats.dosesLeft}`
-                          : "—"}
-                      </span>
-                    </span>
-                    <span>
-                      <span className="text-slate-500">Cost / dose </span>
-                      <span className="text-white font-semibold">
-                        {stats.costPerDose !== null
-                          ? `$${stats.costPerDose.toFixed(2)}`
-                          : "—"}
-                      </span>
-                    </span>
-                    {item.purchase_date && (
+                    {/* stats row */}
+                    <div className="flex flex-wrap gap-x-5 gap-y-1 mt-3 text-sm">
                       <span>
-                        <span className="text-slate-500">Bought </span>
+                        <span className="text-slate-500">Days left </span>
                         <span className="text-white font-semibold">
-                          {formatDate(item.purchase_date)}
+                          {stats.daysLeft !== null ? `~${stats.daysLeft}` : "—"}
                         </span>
                       </span>
+                      <span>
+                        <span className="text-slate-500">Doses left </span>
+                        <span className="text-white font-semibold">
+                          {stats.dosesLeft !== null
+                            ? `~${stats.dosesLeft}`
+                            : "—"}
+                        </span>
+                      </span>
+                      <span>
+                        <span className="text-slate-500">Cost / dose </span>
+                        <span className="text-white font-semibold">
+                          {stats.costPerDose !== null
+                            ? `$${stats.costPerDose.toFixed(2)}`
+                            : "—"}
+                        </span>
+                      </span>
+                      {item.purchase_date && (
+                        <span>
+                          <span className="text-slate-500">Bought </span>
+                          <span className="text-white font-semibold">
+                            {formatDate(item.purchase_date)}
+                          </span>
+                        </span>
+                      )}
+                    </div>
+
+                    {item.notes && (
+                      <p className="text-sm text-slate-500 mt-2">
+                        {item.notes}
+                      </p>
+                    )}
+
+                    {stats.daysLeft === null && stats.dosesLeft === null && (
+                      <p className="text-xs text-slate-600 mt-2">
+                        Estimates appear once you've logged doses of "
+                        {item.peptide_name}" (with a compatible unit).
+                      </p>
                     )}
                   </div>
+                );
+              })}
 
-                  {item.notes && (
-                    <p className="text-sm text-slate-500 mt-2">
-                      {item.notes}
-                    </p>
-                  )}
-
-                  {stats.daysLeft === null && stats.dosesLeft === null && (
-                    <p className="text-xs text-slate-600 mt-2">
-                      Estimates appear once you've logged doses of "
-                      {item.peptide_name}" (with a compatible unit).
-                    </p>
-                  )}
+              {/* ---------- bac water section ---------- */}
+              {bacItems.length > 0 && (
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+                  <h2 className="text-lg font-semibold text-white mb-3">
+                    💧 Bacteriostatic water
+                  </h2>
+                  <div className="space-y-3">
+                    {bacItems.map((item) => {
+                      const vb = vialBreakdown(item);
+                      const total = parseFloat(item.quantity_total);
+                      const remaining = parseFloat(item.quantity_remaining);
+                      return (
+                        <div
+                          key={item.id}
+                          className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 flex items-start justify-between gap-3"
+                        >
+                          <div>
+                            <p className="text-sm text-slate-300">
+                              {vb && vb.open > 0.0001 && (
+                                <>
+                                  Open bottle:{" "}
+                                  <span className="text-white font-semibold">
+                                    {cleanNum(vb.open)}/{cleanNum(vb.size)} mL
+                                  </span>{" "}
+                                  ·{" "}
+                                </>
+                              )}
+                              <span className="text-white font-semibold">
+                                {vb ? vb.unopened : "?"}
+                              </span>{" "}
+                              unopened{" "}
+                              {vb && vb.unopened === 1 ? "bottle" : "bottles"}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              {cleanNum(remaining)} of {cleanNum(total)} mL total
+                              {item.cost !== null && item.cost !== undefined
+                                ? ` · $${parseFloat(item.cost).toFixed(2)}`
+                                : ""}
+                              {item.purchase_date
+                                ? ` · ${formatDate(item.purchase_date)}`
+                                : ""}
+                            </p>
+                            {item.notes && (
+                              <p className="text-xs text-slate-500 mt-1">
+                                {item.notes}
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteItem(item.id)}
+                            className="text-slate-500 hover:text-red-400 text-sm"
+                            title="Delete"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-slate-600 mt-3">
+                    Bac water isn't dosed, so it isn't auto-deducted — adjust it
+                    by deleting and re-adding when a bottle runs out.
+                  </p>
                 </div>
-              );
-            })
+              )}
+            </>
           )}
         </div>
 
-        {/* ---------- RIGHT COLUMN: add product form ---------- */}
+        {/* ---------- RIGHT COLUMN: add form ---------- */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-white mb-1">
-            Add a product
-          </h2>
+          <h2 className="text-lg font-semibold text-white mb-1">Add to inventory</h2>
           <p className="text-sm text-slate-500 mb-4">
-            Same list as your dose log — auto-deduct matches by name
-            automatically.
+            Enter what you bought as vial size × how many vials.
           </p>
 
           {error && (
@@ -492,25 +633,60 @@ export default function InventoryPage() {
             </div>
           )}
 
-          <div className="mb-4">
-            <label className="block text-sm text-slate-400 mb-1">
-              Peptide
-            </label>
-            <select
-              value={peptideName}
-              onChange={(event) => setPeptideName(event.target.value)}
-              className={inputClasses}
+          {/* item type toggle */}
+          <div className="flex gap-2 mb-4">
+            <button
+              type="button"
+              onClick={() => {
+                setItemType("peptide");
+                setError("");
+              }}
+              className={
+                itemType === "peptide"
+                  ? "flex-1 py-2 rounded-lg bg-emerald-500 text-white font-semibold"
+                  : "flex-1 py-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700"
+              }
             >
-              <option value="">Select a peptide...</option>
-              {PEPTIDES.map((p) => (
-                <option key={p.full} value={p.full}>
-                  {p.short} — {p.full}
-                </option>
-              ))}
-            </select>
+              💉 Peptide
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setItemType("bac_water");
+                setError("");
+              }}
+              className={
+                itemType === "bac_water"
+                  ? "flex-1 py-2 rounded-lg bg-emerald-500 text-white font-semibold"
+                  : "flex-1 py-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700"
+              }
+            >
+              💧 Bac water
+            </button>
           </div>
 
-          {/* tap-to-fill vial sizes (from the supplier catalogue) */}
+          {/* peptide selector (peptide mode only) */}
+          {itemType === "peptide" && (
+            <div className="mb-4">
+              <label className="block text-sm text-slate-400 mb-1">
+                Peptide
+              </label>
+              <select
+                value={peptideName}
+                onChange={(event) => setPeptideName(event.target.value)}
+                className={inputClasses}
+              >
+                <option value="">Select a peptide...</option>
+                {PEPTIDES.map((p) => (
+                  <option key={p.full} value={p.full}>
+                    {p.short} — {p.full}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* tap-to-fill vial sizes (peptide mode, when known) */}
           {presets && (
             <div className="mb-4">
               <p className="text-sm text-slate-400 mb-2">
@@ -523,7 +699,7 @@ export default function InventoryPage() {
                     key={size}
                     type="button"
                     onClick={() => {
-                      setQuantity(String(size));
+                      setVialSize(String(size));
                       setInvUnit(presets.unit);
                     }}
                     className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 text-sm hover:bg-slate-700"
@@ -535,40 +711,73 @@ export default function InventoryPage() {
             </div>
           )}
 
-          {/* unit toggle */}
-          <div className="flex gap-2 mb-4">
-            {UNITS.map((unitOption) => (
-              <button
-                key={unitOption}
-                type="button"
-                onClick={() => setInvUnit(unitOption)}
-                className={
-                  unitOption === invUnit
-                    ? "px-4 py-2 rounded-lg bg-emerald-500 text-white font-semibold"
-                    : "px-4 py-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700"
-                }
-              >
-                {unitOption}
-              </button>
-            ))}
-          </div>
+          {/* unit toggle (peptide mode only; bac water is mL) */}
+          {itemType === "peptide" && (
+            <div className="flex gap-2 mb-4">
+              {UNITS.map((unitOption) => (
+                <button
+                  key={unitOption}
+                  type="button"
+                  onClick={() => setInvUnit(unitOption)}
+                  className={
+                    unitOption === invUnit
+                      ? "px-4 py-2 rounded-lg bg-emerald-500 text-white font-semibold"
+                      : "px-4 py-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700"
+                  }
+                >
+                  {unitOption}
+                </button>
+              ))}
+            </div>
+          )}
 
+          {/* vial size × count */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm text-slate-400 mb-1">
-                Quantity ({invUnit})
+                {itemType === "bac_water"
+                  ? "Bottle size (mL)"
+                  : `Vial size (${invUnit})`}
               </label>
               <input
                 type="number"
                 step="0.01"
                 min="0"
-                placeholder="0.0"
-                value={quantity}
-                onChange={(event) => setQuantity(event.target.value)}
+                placeholder={itemType === "bac_water" ? "e.g. 30" : "e.g. 10"}
+                value={vialSize}
+                onChange={(event) => setVialSize(event.target.value)}
                 className={inputClasses}
               />
             </div>
 
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">
+                {itemType === "bac_water" ? "How many bottles" : "How many vials"}
+              </label>
+              <input
+                type="number"
+                step="1"
+                min="1"
+                placeholder="1"
+                value={vialCount}
+                onChange={(event) => setVialCount(event.target.value)}
+                className={inputClasses}
+              />
+            </div>
+          </div>
+
+          {/* live total preview */}
+          {vialSize && vialCount && parseFloat(vialSize) > 0 && (
+            <p className="text-xs text-slate-500 mt-2">
+              ={" "}
+              {cleanNum(parseFloat(vialSize) * (parseInt(vialCount, 10) || 0))}{" "}
+              {itemType === "bac_water" ? "mL" : invUnit} total across{" "}
+              {parseInt(vialCount, 10) || 0}{" "}
+              {itemType === "bac_water" ? "bottle(s)" : "vial(s)"}
+            </p>
+          )}
+
+          <div className="grid grid-cols-2 gap-4 mt-4">
             <div>
               <label className="block text-sm text-slate-400 mb-1">
                 Cost ($CAD){" "}
@@ -597,19 +806,23 @@ export default function InventoryPage() {
                 className={`${inputClasses} [color-scheme:dark]`}
               />
             </div>
+          </div>
 
-            <div>
-              <label className="block text-sm text-slate-400 mb-1">
-                Notes <span className="text-slate-500">(optional)</span>
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. pharmacy refill"
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                className={inputClasses}
-              />
-            </div>
+          <div className="mt-4">
+            <label className="block text-sm text-slate-400 mb-1">
+              Notes <span className="text-slate-500">(optional)</span>
+            </label>
+            <input
+              type="text"
+              placeholder={
+                itemType === "bac_water"
+                  ? "e.g. brand / size"
+                  : "e.g. pharmacy refill"
+              }
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              className={inputClasses}
+            />
           </div>
 
           <button
@@ -618,7 +831,11 @@ export default function InventoryPage() {
             disabled={saving}
             className="mt-5 w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-8 py-3 rounded-lg disabled:opacity-50"
           >
-            {saving ? "Saving..." : "Add product"}
+            {saving
+              ? "Saving..."
+              : itemType === "bac_water"
+              ? "Add bac water"
+              : "Add product"}
           </button>
         </div>
       </div>
