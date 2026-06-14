@@ -24,7 +24,7 @@ import { PEPTIDES, UNITS } from "../../lib/peptides";
 import { INJECTION_SITE_GROUPS } from "../../lib/sites";
 import { deductFromInventory } from "../../lib/inventory-helpers";
 import MiniCalendar from "../../components/MiniCalendar";
-import { isDoseDay, toDateString, dateFromString } from "../../lib/schedule-helpers";
+import { isDoseDay, toDateString, dateFromString, doseOnDate } from "../../lib/schedule-helpers";
 
 const LOW_STOCK_PERCENT = 20;
 
@@ -467,6 +467,43 @@ export default function Dashboard() {
   }
   const hasSchedules = schedules.some((s) => s.active);
 
+  // Upcoming scheduled dose days (today forward), with the dose that
+  // applies on each day (titration-aware). Up to the next 7 dose days.
+  const upcomingDoses = [];
+  {
+    const activeSchedules = schedules.filter((s) => s.active);
+    if (activeSchedules.length > 0) {
+      const cursor = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+        12
+      );
+      const horizon = new Date(cursor);
+      horizon.setDate(horizon.getDate() + 90);
+      while (cursor <= horizon && upcomingDoses.length < 7) {
+        const items = [];
+        for (const s of activeSchedules) {
+          if (isDoseDay(s, cursor)) {
+            items.push({
+              peptide_name: s.peptide_name,
+              dose: doseOnDate(s, cursor),
+              unit: s.unit,
+            });
+          }
+        }
+        if (items.length > 0) {
+          upcomingDoses.push({
+            date: new Date(cursor),
+            key: toDateString(cursor),
+            items,
+          });
+        }
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+  }
+
   // ---------- recent activity feed (merged, newest first) ----------
   const feed = [];
   for (const d of doses) {
@@ -836,11 +873,51 @@ export default function Dashboard() {
           </div>
 
           {hasSchedules ? (
-            <div className="max-w-md">
-              <MiniCalendar
-                scheduledDates={scheduledDoseDates}
-                loggedDates={loggedDoseDates}
-              />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+              <div className="max-w-md">
+                <MiniCalendar
+                  scheduledDates={scheduledDoseDates}
+                  loggedDates={loggedDoseDates}
+                />
+              </div>
+              <div>
+                <p className="text-sm text-slate-400 mb-2">Upcoming doses</p>
+                {upcomingDoses.length === 0 ? (
+                  <p className="text-sm text-slate-500">
+                    No upcoming scheduled doses in the next 90 days.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {upcomingDoses.map((day) => (
+                      <li
+                        key={day.key}
+                        className="bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2"
+                      >
+                        <p className="text-xs text-slate-400">
+                          {day.key === todayKey
+                            ? "Today"
+                            : day.date.toLocaleDateString(undefined, {
+                                weekday: "short",
+                                month: "short",
+                                day: "numeric",
+                              })}
+                        </p>
+                        <p className="text-sm text-slate-300 mt-0.5">
+                          {day.items.map((it, i) => (
+                            <span key={i}>
+                              {i > 0 && ", "}
+                              <span className="text-white">
+                                {it.peptide_name}
+                              </span>{" "}
+                              {it.dose} {it.unit}
+                            </span>
+                          ))}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
           ) : (
             <p className="text-sm text-slate-500">
