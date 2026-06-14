@@ -418,6 +418,16 @@ export default function InventoryPage() {
                 const vb = vialBreakdown(item);
                 const total = parseFloat(item.quantity_total);
                 const remaining = parseFloat(item.quantity_remaining);
+                // The bar shows how full the CURRENT vial is (per-vial
+                // gauge): 9/10 mg open -> 90%. A fresh/unopened next vial
+                // reads full; empty reads 0. Old rows fall back to total %.
+                const openPct = vb
+                  ? vb.open > 0.0001
+                    ? (vb.open / vb.size) * 100
+                    : remaining > 0
+                    ? 100
+                    : 0
+                  : stats.percentRemaining;
 
                 return (
                   <div
@@ -458,7 +468,7 @@ export default function InventoryPage() {
                             </p>
                             <p className="text-xs text-slate-500 mt-0.5">
                               {cleanNum(remaining)} of {cleanNum(total)}{" "}
-                              {item.unit} total ({stats.percentRemaining.toFixed(0)}%)
+                              {item.unit} total
                             </p>
                           </>
                         ) : (
@@ -489,7 +499,7 @@ export default function InventoryPage() {
                         style={{
                           width: `${Math.max(
                             0,
-                            Math.min(100, stats.percentRemaining)
+                            Math.min(100, openPct)
                           )}%`,
                         }}
                       ></div>

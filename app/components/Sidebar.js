@@ -1,11 +1,14 @@
 "use client";
 
 // ============================================================
-// SIDEBAR (v5)  —  goes in:  app/components/Sidebar.js
-// (FULL REPLACEMENT of v4.)
+// SIDEBAR (v6)  —  goes in:  app/components/Sidebar.js
+// (FULL REPLACEMENT of v5.)
 //
-// Day 21 · Chunk A: ONE change — a new 🏆 Goals & Streaks link
-// right after Calendar. Everything else is identical to v4.
+// ONE change vs v5: the nav links are reordered to follow the
+// flow a new user actually moves through — overview, then set
+// up a protocol, then stock it, then the daily logging, then
+// tracking, then reference, then settings. No links added or
+// removed; only their order changed.
 // ============================================================
 
 import Link from "next/link";
@@ -14,15 +17,15 @@ import { supabase } from "../lib/supabase";
 
 const links = [
   { href: "/dashboard", label: "Dashboard", icon: "🏠" },
-  { href: "/log", label: "Log Dose", icon: "💉" },
-  { href: "/progress", label: "Progress", icon: "📊" },
-  { href: "/gym", label: "Gym PRs", icon: "🏋️" },
-  { href: "/inventory", label: "Inventory", icon: "📦" },
   { href: "/planner", label: "Planner", icon: "🧮" },
+  { href: "/inventory", label: "Inventory", icon: "📦" },
+  { href: "/log", label: "Log Dose", icon: "💉" },
   { href: "/calendar", label: "Calendar", icon: "📅" },
+  { href: "/progress", label: "Progress", icon: "📊" },
   { href: "/goals", label: "Goals & Streaks", icon: "🏆" },
   { href: "/lab-results", label: "Lab Results", icon: "🧪" },
   { href: "/side-effects", label: "Side Effects", icon: "⚠️" },
+  { href: "/gym", label: "Gym PRs", icon: "🏋️" },
   { href: "/peptides", label: "Peptide Encyclopedia", icon: "📚" },
   { href: "/settings", label: "Settings", icon: "⚙️" },
 ];

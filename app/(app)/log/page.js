@@ -340,6 +340,9 @@ export default function Log() {
   const [siteStats, setSiteStats] = useState({});
   const [unmappedCount, setUnmappedCount] = useState(0);
 
+  // inventory (for surfacing in-stock peptides first in the dropdown)
+  const [inventory, setInventory] = useState([]);
+
   const today = getLocalDateTimeString();
   const [peptideName, setPeptideName] = useState("");
   const [doseAmount, setDoseAmount] = useState("");
@@ -365,6 +368,7 @@ export default function Log() {
       await Promise.all([
         fetchRecentLogs(session.user.id),
         fetchSiteHistory(session.user.id),
+        fetchInventory(session.user.id),
       ]);
       setLoading(false);
     }
@@ -380,6 +384,15 @@ export default function Log() {
       .order("logged_at", { ascending: false })
       .limit(10);
     if (data) setRecentLogs(data);
+  }
+
+  // What's in the user's inventory (in-stock peptides surface first)
+  async function fetchInventory(userId) {
+    const { data } = await supabase
+      .from("inventory")
+      .select("peptide_name, item_type, quantity_remaining")
+      .eq("user_id", userId);
+    setInventory(data || []);
   }
 
   // Last 90 days of injection sites → { siteKey: { count, lastTs } }
@@ -515,12 +528,31 @@ export default function Log() {
       await Promise.all([
         fetchRecentLogs(session.user.id),
         fetchSiteHistory(session.user.id),
+        fetchInventory(session.user.id),
       ]);
       setTimeout(() => setSuccess(""), 6000);
     }
 
     setSaving(false);
   }
+
+  // Peptides currently in stock (item_type peptide, something left) —
+  // these surface in their own group at the top of the dropdown.
+  const inStockNames = new Set();
+  for (const item of inventory) {
+    if (
+      (item.item_type || "peptide") === "peptide" &&
+      parseFloat(item.quantity_remaining) > 0
+    ) {
+      inStockNames.add(item.peptide_name.trim().toLowerCase());
+    }
+  }
+  const inStockPeptides = PEPTIDES.filter((p) =>
+    inStockNames.has(p.full.trim().toLowerCase())
+  );
+  const otherPeptides = PEPTIDES.filter(
+    (p) => !inStockNames.has(p.full.trim().toLowerCase())
+  );
 
   const selectedGroupData = INJECTION_SITE_GROUPS.find((g) => g.group === injectionGroup);
 
@@ -568,9 +600,22 @@ export default function Log() {
                 className="w-full bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-700 focus:outline-none focus:border-emerald-500"
               >
                 <option value="">Select a peptide...</option>
-                {PEPTIDES.map((p) => (
-                  <option key={p.full} value={p.full}>{p.short} — {p.full}</option>
-                ))}
+                {inStockPeptides.length > 0
+                  ? [
+                      <optgroup key="instock" label="In your inventory">
+                        {inStockPeptides.map((p) => (
+                          <option key={p.full} value={p.full}>{p.short} — {p.full}</option>
+                        ))}
+                      </optgroup>,
+                      <optgroup key="all" label="All peptides">
+                        {otherPeptides.map((p) => (
+                          <option key={p.full} value={p.full}>{p.short} — {p.full}</option>
+                        ))}
+                      </optgroup>,
+                    ]
+                  : PEPTIDES.map((p) => (
+                      <option key={p.full} value={p.full}>{p.short} — {p.full}</option>
+                    ))}
               </select>
             </div>
 

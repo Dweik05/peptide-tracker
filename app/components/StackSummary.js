@@ -44,28 +44,28 @@ export default function StackSummary() {
       }
       const uid = session.user.id;
 
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-      const [doseResult, inventoryResult] = await Promise.all([
+      const [scheduleResult, inventoryResult] = await Promise.all([
         supabase
-          .from("dose_logs")
+          .from("reminders")
           .select("peptide_name")
           .eq("user_id", uid)
-          .gte("logged_at", thirtyDaysAgo.toISOString()),
+          .eq("active", true),
         supabase
           .from("inventory")
-          .select("peptide_name, quantity_remaining")
+          .select("peptide_name, item_type, quantity_remaining")
           .eq("user_id", uid),
       ]);
 
-      // union, de-duped case-insensitively (first casing wins)
+      // union, de-duped case-insensitively (first casing wins):
+      // peptides in an active schedule OR in inventory with stock left.
       const seen = new Map();
-      for (const row of doseResult.data || []) {
+      for (const row of scheduleResult.data || []) {
+        if (!row.peptide_name) continue;
         const key = row.peptide_name.trim().toLowerCase();
         if (key && !seen.has(key)) seen.set(key, row.peptide_name.trim());
       }
       for (const row of inventoryResult.data || []) {
+        if ((row.item_type || "peptide") !== "peptide") continue; // skip bac water
         if (parseFloat(row.quantity_remaining) <= 0) continue;
         const key = row.peptide_name.trim().toLowerCase();
         if (key && !seen.has(key)) seen.set(key, row.peptide_name.trim());
@@ -91,7 +91,7 @@ export default function StackSummary() {
         <div>
           <h2 className="text-white font-semibold">Your stack</h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            From your recent doses &amp; inventory
+            From your schedule &amp; inventory
           </p>
         </div>
         <Link

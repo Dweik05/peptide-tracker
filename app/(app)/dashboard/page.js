@@ -107,6 +107,7 @@ export default function Dashboard() {
   const [userId, setUserId] = useState(null);
   const [firstName, setFirstName] = useState("there");
   const [usesPeptides, setUsesPeptides] = useState(true);
+  const [weeklyEmail, setWeeklyEmail] = useState(false);
 
   const [doses, setDoses] = useState([]); // last 90 days, newest first
   const [recentWeights, setRecentWeights] = useState([]); // last 90 days
@@ -180,7 +181,7 @@ export default function Dashboard() {
   async function fetchProfileMode(uid) {
     const { data, error: profileError } = await supabase
       .from("profiles")
-      .select("uses_peptides")
+      .select("uses_peptides, weekly_weighin_email")
       .eq("id", uid)
       .single();
 
@@ -190,6 +191,7 @@ export default function Dashboard() {
       setUsesPeptides(true);
     } else {
       setUsesPeptides(data?.uses_peptides ?? true);
+      setWeeklyEmail(data?.weekly_weighin_email ?? false);
     }
   }
 
@@ -361,6 +363,20 @@ export default function Dashboard() {
     fetchInventory(userId);
   }
 
+  // toggle the weekly weigh-in email preference (persists to profiles)
+  async function handleToggleWeeklyEmail() {
+    const next = !weeklyEmail;
+    setWeeklyEmail(next); // optimistic
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({ weekly_weighin_email: next })
+      .eq("id", userId);
+    if (updateError) {
+      setWeeklyEmail(!next); // revert on failure
+      setError(`Couldn't save reminder setting: ${updateError.message}`);
+    }
+  }
+
   // ---------- computed values ----------
   const now = new Date();
   const hour = now.getHours();
@@ -388,6 +404,37 @@ export default function Dashboard() {
     }
   }
   const loggedToday = activityDays.has(todayKey);
+
+  // Streak presentation: it stays alive through today even if you
+  // haven't logged yet (only a genuinely missed day drops it to 0).
+  //   active  = logged today, safe
+  //   warning = alive but nothing logged today yet — log to keep it
+  //   none    = no streak going
+  const streakState =
+    streak === 0 ? "none" : loggedToday ? "active" : "warning";
+
+  // Weekly weigh-in nudge: overdue if never weighed, or 7+ days since last
+  let daysSinceWeighin = null;
+  if (latestWeight) {
+    const lastMidnight = new Date(
+      dateKeyOf(latestWeight.logged_at) + "T00:00:00"
+    );
+    const todayMidnight = new Date(todayKey + "T00:00:00");
+    daysSinceWeighin = Math.round(
+      (todayMidnight - lastMidnight) / 86400000
+    );
+  }
+  const weighinOverdue = daysSinceWeighin === null || daysSinceWeighin >= 7;
+  const weighinMessage =
+    daysSinceWeighin === null
+      ? "Log your first weight to start tracking your progress."
+      : daysSinceWeighin === 0
+      ? "You weighed in today. Nice."
+      : daysSinceWeighin >= 7
+      ? `It's been ${daysSinceWeighin} days since your last weigh-in.`
+      : `Last weigh-in: ${daysSinceWeighin} ${
+          daysSinceWeighin === 1 ? "day" : "days"
+        } ago.`;
 
   // today's items
   const todaysDoses = doses.filter((d) => dateKeyOf(d.logged_at) === todayKey);
@@ -625,17 +672,37 @@ export default function Dashboard() {
       {/* ---------- stat cards ---------- */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* streak — both modes */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <div
+          className={`bg-slate-900 border rounded-xl p-6 ${
+            streakState === "active"
+              ? "border-emerald-500/40"
+              : streakState === "warning"
+              ? "border-amber-500/40"
+              : "border-slate-800"
+          }`}
+        >
           <p className="text-sm text-slate-400">Streak</p>
-          <p className="text-2xl font-bold text-white mt-1">
+          <p
+            className={`text-2xl font-bold mt-1 ${
+              streakState === "active"
+                ? "text-emerald-400"
+                : streakState === "warning"
+                ? "text-amber-400"
+                : "text-white"
+            }`}
+          >
             🔥 {streak} {streak === 1 ? "day" : "days"}
           </p>
-          <p className="text-sm text-slate-500 mt-1">
-            {streak === 0
+          <p
+            className={`text-sm mt-1 ${
+              streakState === "warning" ? "text-amber-400" : "text-slate-500"
+            }`}
+          >
+            {streakState === "none"
               ? "Log anything to start one"
-              : loggedToday
-              ? "Going strong"
-              : "Log today to keep it"}
+              : streakState === "active"
+              ? "✓ Active — logged today"
+              : `⚠️ Log today to keep your ${streak}-day streak`}
           </p>
         </div>
 
@@ -855,6 +922,48 @@ export default function Dashboard() {
             </ul>
           )}
         </div>
+      </div>
+
+      {/* ---------- weekly weigh-in ---------- */}
+      <div
+        className={`bg-slate-900 border rounded-xl p-6 ${
+          weighinOverdue ? "border-amber-500/40" : "border-slate-800"
+        }`}
+      >
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h2 className="text-lg font-semibold text-white">
+              ⚖️ Weekly weigh-in
+            </h2>
+            <p
+              className={`text-sm mt-1 ${
+                weighinOverdue ? "text-amber-400" : "text-slate-500"
+              }`}
+            >
+              {weighinMessage}
+            </p>
+          </div>
+          {weighinOverdue && (
+            <Link
+              href="/progress"
+              className="bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-5 py-2 rounded-lg text-sm whitespace-nowrap"
+            >
+              Log weight
+            </Link>
+          )}
+        </div>
+
+        <label className="flex items-center gap-3 mt-4 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={weeklyEmail}
+            onChange={handleToggleWeeklyEmail}
+            className="w-4 h-4 accent-emerald-500"
+          />
+          <span className="text-sm text-slate-300">
+            📧 Email me a weekly weigh-in reminder
+          </span>
+        </label>
       </div>
 
       {/* ---------- schedule this month (peptide mode) ---------- */}
