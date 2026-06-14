@@ -1,31 +1,19 @@
 "use client";
 
 // ============================================================
-// DASHBOARD  —  goes in:  app/(app)/dashboard/page.js
+// DASHBOARD (v2)  —  goes in:  app/(app)/dashboard/page.js
 //
-// Day 13: mission control, now running on REAL data.
+// Day 23 · Chunk A: a "Schedule this month" card with the
+// MiniCalendar — scheduled dose days (emerald) from your saved
+// schedules, plus the doses you actually logged (sky). The
+// scheduled days are titration-aware (same isDoseDay/doseOnDate
+// the Calendar page uses). Peptide mode only.
 //
-//   - Time-based greeting with your real name (kept)
-//   - Streak counter: consecutive days with ANY log — doses,
-//     weight, gym, measurements, or photos (labs don't count;
-//     they're usually backdated reports, not daily activity).
-//     Misses today so far? Yesterday still counts — log today
-//     to keep it alive.
-//   - Stat cards, a "Today" panel, and a recent-activity feed
-//     merged from every table you've built
-//   - ⚡ Quick log: log a dose in a popup without leaving the
-//     dashboard — runs the SAME shared auto-deduct as /log
-//
-// MODE-AWARE (the ⭐ from the timeline): this page reads
-// profiles.uses_peptides. True (everyone, for now) = the full
-// peptide dashboard. False = dose/inventory widgets disappear
-// and weight/gym/photos take the spotlight. Day 22's
-// onboarding will set this per-user; until then it defaults
-// to true, and you can preview the other mode by flipping the
-// column in Table Editor.
-//
-// Requires the one-line SQL from the chat (adds the
-// uses_peptides column) — run it first.
+// Everything else from Day 13 is unchanged. The only additions:
+//   - import MiniCalendar + schedule helpers
+//   - fetch the user's `reminders` (schedules)
+//   - compute this-month's scheduled + logged date strings
+//   - render the new card
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -35,6 +23,8 @@ import { supabase } from "../../lib/supabase";
 import { PEPTIDES, UNITS } from "../../lib/peptides";
 import { INJECTION_SITE_GROUPS } from "../../lib/sites";
 import { deductFromInventory } from "../../lib/inventory-helpers";
+import MiniCalendar from "../../components/MiniCalendar";
+import { isDoseDay, toDateString, dateFromString } from "../../lib/schedule-helpers";
 
 const LOW_STOCK_PERCENT = 20;
 
@@ -127,6 +117,7 @@ export default function Dashboard() {
   const [photos, setPhotos] = useState([]); // last 90 days
   const [labs, setLabs] = useState([]); // last 90 days
   const [inventoryItems, setInventoryItems] = useState([]);
+  const [schedules, setSchedules] = useState([]); // saved reminders (schedules)
 
   // quick-log modal
   const [quickOpen, setQuickOpen] = useState(false);
@@ -171,6 +162,7 @@ export default function Dashboard() {
         fetchPhotos(session.user.id),
         fetchLabs(session.user.id),
         fetchInventory(session.user.id),
+        fetchSchedules(session.user.id),
       ]);
 
       setLoading(false);
@@ -287,6 +279,14 @@ export default function Dashboard() {
       .select("*")
       .eq("user_id", uid);
     setInventoryItems(data || []);
+  }
+
+  async function fetchSchedules(uid) {
+    const { data } = await supabase
+      .from("reminders")
+      .select("*")
+      .eq("user_id", uid);
+    setSchedules(data || []);
   }
 
   // ---------- quick-log save ----------
@@ -431,6 +431,41 @@ export default function Dashboard() {
 
   // last dose
   const lastDose = doses.length > 0 ? doses[0] : null;
+
+  // ---------- mini-calendar date sets (this-month view spans wider) ----------
+  // Logged dose days (sky) — from the doses we already fetched.
+  const loggedDoseDates = [];
+  for (const d of doses) loggedDoseDates.push(dateKeyOf(d.logged_at));
+
+  // Scheduled dose days (emerald) — walk active schedules across a
+  // window around today so the mini-calendar shows them whichever
+  // month you flip to. We scan from 45 days back to 75 days ahead.
+  const scheduledDoseDates = [];
+  {
+    const activeSchedules = schedules.filter((s) => s.active);
+    if (activeSchedules.length > 0) {
+      const scanStart = new Date();
+      scanStart.setDate(scanStart.getDate() - 45);
+      const scanEnd = new Date();
+      scanEnd.setDate(scanEnd.getDate() + 75);
+      const cursor = new Date(
+        scanStart.getFullYear(),
+        scanStart.getMonth(),
+        scanStart.getDate(),
+        12
+      );
+      while (cursor <= scanEnd) {
+        for (const s of activeSchedules) {
+          if (isDoseDay(s, cursor)) {
+            scheduledDoseDates.push(toDateString(cursor));
+            break;
+          }
+        }
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+  }
+  const hasSchedules = schedules.some((s) => s.active);
 
   // ---------- recent activity feed (merged, newest first) ----------
   const feed = [];
@@ -784,6 +819,43 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* ---------- schedule this month (peptide mode) ---------- */}
+      {usesPeptides && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-white">
+              Schedule this month
+            </h2>
+            <Link
+              href="/calendar"
+              className="text-sm text-emerald-400 hover:text-emerald-300"
+            >
+              Open calendar →
+            </Link>
+          </div>
+
+          {hasSchedules ? (
+            <div className="max-w-md">
+              <MiniCalendar
+                scheduledDates={scheduledDoseDates}
+                loggedDates={loggedDoseDates}
+              />
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">
+              No active schedules yet — build a protocol in the{" "}
+              <Link
+                href="/planner"
+                className="text-emerald-400 hover:text-emerald-300"
+              >
+                Planner
+              </Link>{" "}
+              and save it as a schedule to see your dose days here.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* ---------- quick-log modal ---------- */}
       {quickOpen && (
