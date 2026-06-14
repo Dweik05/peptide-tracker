@@ -81,14 +81,6 @@ export async function GET(request) {
       schedule.last_reminder_sent !== todayString // not already reminded today
   );
 
-  if (due.length === 0) {
-    return Response.json({
-      date: todayString,
-      message: "No reminders due today.",
-      schedulesChecked: (schedules || []).length,
-    });
-  }
-
   // ---------- 4. group due schedules by user ----------
   const byUser = {};
   for (const schedule of due) {
@@ -173,9 +165,93 @@ export async function GET(request) {
       .in("id", sentScheduleIds);
   }
 
+  // ---------- 7. weekly weigh-in reminders ----------
+  // Independent of dose reminders. For each opted-in user, send a nudge
+  // only if they're overdue (no weigh-in in the last 7 days) AND we
+  // haven't already reminded them in the last 7 days (weekly dedupe).
+  const weighinResults = [];
+  const SEVEN_DAYS_MS = 7 * 86400000;
+
+  const { data: weighinProfiles } = await supabaseAdmin
+    .from("profiles")
+    .select("id, last_weighin_reminder_sent")
+    .eq("weekly_weighin_email", true);
+
+  for (const profile of weighinProfiles || []) {
+    const uid = profile.id;
+
+    // dedupe: already reminded within the last 7 days? skip.
+    if (profile.last_weighin_reminder_sent) {
+      const lastSent = dateFromString(profile.last_weighin_reminder_sent);
+      if (today.getTime() - lastSent.getTime() < SEVEN_DAYS_MS) continue;
+    }
+
+    // not overdue: weighed in within the last 7 days? skip.
+    const sevenAgoIso = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
+    const { data: recentWeight } = await supabaseAdmin
+      .from("weight_logs")
+      .select("id")
+      .eq("user_id", uid)
+      .gte("logged_at", sevenAgoIso)
+      .limit(1);
+    if (recentWeight && recentWeight.length > 0) continue;
+
+    // look up their email
+    const { data: userData, error: userError } =
+      await supabaseAdmin.auth.admin.getUserById(uid);
+    const email = userData && userData.user ? userData.user.email : null;
+    if (userError || !email) {
+      weighinResults.push({ userId: uid, sent: false, reason: "no email found" });
+      continue;
+    }
+
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+        <h2 style="color:#0f172a;margin:0 0 4px;">Time for your weekly weigh-in</h2>
+        <p style="color:#475569;margin:0 0 16px;">${prettyDate}</p>
+        <p style="color:#0f172a;font-size:15px;margin:0 0 16px;">
+          You haven't logged your weight in a little while. A quick weigh-in
+          keeps your progress charts accurate.
+        </p>
+        <p style="color:#64748b;font-size:12px;margin-top:24px;">
+          You're receiving this because weekly weigh-in reminders are turned
+          on in Peptide Tracker. You can turn them off any time from your
+          dashboard. This is a reminder you set up &mdash; not medical advice.
+        </p>
+      </div>
+    `;
+
+    const resendResponse = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: FROM_ADDRESS,
+        to: email,
+        subject: "Your weekly weigh-in reminder",
+        html: html,
+      }),
+    });
+
+    if (!resendResponse.ok) {
+      const body = await resendResponse.text();
+      weighinResults.push({ email, sent: false, reason: body });
+      continue;
+    }
+
+    weighinResults.push({ email, sent: true });
+    await supabaseAdmin
+      .from("profiles")
+      .update({ last_weighin_reminder_sent: todayString })
+      .eq("id", uid);
+  }
+
   return Response.json({
     date: todayString,
     dueSchedules: due.length,
     results: results,
+    weighinReminders: weighinResults,
   });
 }

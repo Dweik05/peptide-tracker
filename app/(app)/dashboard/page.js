@@ -82,6 +82,24 @@ function friendlyWhen(value) {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+// "today" / "yesterday" / "Jun 8" — date only (no time), for the weigh-in date
+function weighInDate(value) {
+  const safe =
+    typeof value === "string" && value.length === 10
+      ? `${value}T12:00:00`
+      : value;
+  const d = new Date(safe);
+  const key = dateKeyFromDate(d);
+  const now = new Date();
+  const todayK = dateKeyFromDate(now);
+  const y = new Date();
+  y.setDate(y.getDate() - 1);
+  const yK = dateKeyFromDate(y);
+  if (key === todayK) return "today";
+  if (key === yK) return "yesterday";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 // ----- weight unit conversion (lbs / kg / st) -----
 function toLbs(value, unit) {
   if (unit === "kg") return value * 2.20462;
@@ -107,7 +125,6 @@ export default function Dashboard() {
   const [userId, setUserId] = useState(null);
   const [firstName, setFirstName] = useState("there");
   const [usesPeptides, setUsesPeptides] = useState(true);
-  const [weeklyEmail, setWeeklyEmail] = useState(false);
 
   const [doses, setDoses] = useState([]); // last 90 days, newest first
   const [recentWeights, setRecentWeights] = useState([]); // last 90 days
@@ -136,6 +153,9 @@ export default function Dashboard() {
   const [success, setSuccess] = useState("");
   const [stockWarning, setStockWarning] = useState("");
   const [error, setError] = useState("");
+
+  // recent-activity collapse toggle
+  const [activityOpen, setActivityOpen] = useState(true);
 
   // ---------- load everything on page open ----------
   useEffect(() => {
@@ -181,7 +201,7 @@ export default function Dashboard() {
   async function fetchProfileMode(uid) {
     const { data, error: profileError } = await supabase
       .from("profiles")
-      .select("uses_peptides, weekly_weighin_email")
+      .select("uses_peptides")
       .eq("id", uid)
       .single();
 
@@ -191,7 +211,6 @@ export default function Dashboard() {
       setUsesPeptides(true);
     } else {
       setUsesPeptides(data?.uses_peptides ?? true);
-      setWeeklyEmail(data?.weekly_weighin_email ?? false);
     }
   }
 
@@ -363,20 +382,6 @@ export default function Dashboard() {
     fetchInventory(userId);
   }
 
-  // toggle the weekly weigh-in email preference (persists to profiles)
-  async function handleToggleWeeklyEmail() {
-    const next = !weeklyEmail;
-    setWeeklyEmail(next); // optimistic
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .update({ weekly_weighin_email: next })
-      .eq("id", userId);
-    if (updateError) {
-      setWeeklyEmail(!next); // revert on failure
-      setError(`Couldn't save reminder setting: ${updateError.message}`);
-    }
-  }
-
   // ---------- computed values ----------
   const now = new Date();
   const hour = now.getHours();
@@ -412,29 +417,6 @@ export default function Dashboard() {
   //   none    = no streak going
   const streakState =
     streak === 0 ? "none" : loggedToday ? "active" : "warning";
-
-  // Weekly weigh-in nudge: overdue if never weighed, or 7+ days since last
-  let daysSinceWeighin = null;
-  if (latestWeight) {
-    const lastMidnight = new Date(
-      dateKeyOf(latestWeight.logged_at) + "T00:00:00"
-    );
-    const todayMidnight = new Date(todayKey + "T00:00:00");
-    daysSinceWeighin = Math.round(
-      (todayMidnight - lastMidnight) / 86400000
-    );
-  }
-  const weighinOverdue = daysSinceWeighin === null || daysSinceWeighin >= 7;
-  const weighinMessage =
-    daysSinceWeighin === null
-      ? "Log your first weight to start tracking your progress."
-      : daysSinceWeighin === 0
-      ? "You weighed in today. Nice."
-      : daysSinceWeighin >= 7
-      ? `It's been ${daysSinceWeighin} days since your last weigh-in.`
-      : `Last weigh-in: ${daysSinceWeighin} ${
-          daysSinceWeighin === 1 ? "day" : "days"
-        } ago.`;
 
   // today's items
   const todaysDoses = doses.filter((d) => dateKeyOf(d.logged_at) === todayKey);
@@ -706,8 +688,11 @@ export default function Dashboard() {
           </p>
         </div>
 
-        {/* current weight — both modes */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        {/* current weight — both modes (links to Progress) */}
+        <Link
+          href="/progress"
+          className="block bg-slate-900 border border-slate-800 rounded-xl p-6 hover:bg-slate-800 transition-colors"
+        >
           <p className="text-sm text-slate-400">Current weight</p>
           <p className="text-2xl font-bold text-white mt-1">
             {latestWeight
@@ -725,12 +710,20 @@ export default function Dashboard() {
               ? `↑ ${weightChange.toFixed(1)} ${latestWeight.unit} since start`
               : "No change since start"}
           </p>
-        </div>
+          {latestWeight && (
+            <p className="text-xs text-slate-600 mt-1">
+              Weighed {weighInDate(latestWeight.logged_at)}
+            </p>
+          )}
+        </Link>
 
         {usesPeptides ? (
           <>
-            {/* last dose — peptide mode */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+            {/* last dose — peptide mode (links to Log) */}
+            <Link
+              href="/log"
+              className="block bg-slate-900 border border-slate-800 rounded-xl p-6 hover:bg-slate-800 transition-colors"
+            >
               <p className="text-sm text-slate-400">Last dose</p>
               <p className="text-2xl font-bold text-white mt-1">
                 {lastDose
@@ -742,11 +735,12 @@ export default function Dashboard() {
                   ? `${lastDose.peptide_name} · ${friendlyWhen(lastDose.logged_at)}`
                   : "No doses yet"}
               </p>
-            </div>
+            </Link>
 
-            {/* inventory — peptide mode */}
-            <div
-              className={`bg-slate-900 border rounded-xl p-6 ${
+            {/* inventory — peptide mode (links to Inventory) */}
+            <Link
+              href="/inventory"
+              className={`block bg-slate-900 border rounded-xl p-6 hover:bg-slate-800 transition-colors ${
                 lowStockItems.length > 0
                   ? "border-red-500/40"
                   : "border-slate-800"
@@ -769,7 +763,7 @@ export default function Dashboard() {
                   ? `Lowest: ${lowestItem.peptide_name} at ${lowestItem.percent.toFixed(0)}%`
                   : "Nothing tracked yet"}
               </p>
-            </div>
+            </Link>
           </>
         ) : (
           <>
@@ -800,173 +794,7 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* ---------- today + activity ---------- */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        {/* TODAY panel */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Today</h2>
-
-          <div className="space-y-3">
-            {usesPeptides && (
-              <div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-400">💉 Dose</span>
-                  <span
-                    className={`text-sm font-semibold ${
-                      todaysDoses.length > 0
-                        ? "text-emerald-400"
-                        : "text-slate-500"
-                    }`}
-                  >
-                    {todaysDoses.length > 0 ? "✓ Logged" : "Not yet"}
-                  </span>
-                </div>
-                {todaysDoses.map((d) => (
-                  <p key={d.id} className="text-sm text-slate-500 mt-1">
-                    {parseFloat(d.dose_amount)} {d.unit} {d.peptide_name} ·{" "}
-                    {friendlyWhen(d.logged_at)}
-                  </p>
-                ))}
-                {todaysDoses.length === 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setQuickOpen(true)}
-                    className="mt-2 w-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold px-4 py-2 rounded-lg border border-slate-700"
-                  >
-                    ⚡ Quick log a dose
-                  </button>
-                )}
-              </div>
-            )}
-
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-400">⚖️ Weight</span>
-              <span
-                className={`text-sm font-semibold ${
-                  weightToday ? "text-emerald-400" : "text-slate-500"
-                }`}
-              >
-                {weightToday ? "✓ Logged" : "Not yet"}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-400">🏋️ Gym</span>
-              <span
-                className={`text-sm font-semibold ${
-                  gymToday ? "text-emerald-400" : "text-slate-500"
-                }`}
-              >
-                {gymToday ? "✓ Logged" : "Not yet"}
-              </span>
-            </div>
-
-            <div className="pt-2 flex flex-wrap gap-2">
-              <Link
-                href="/progress"
-                className="text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700"
-              >
-                Log weight
-              </Link>
-              <Link
-                href="/gym"
-                className="text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700"
-              >
-                Log a set
-              </Link>
-              {usesPeptides && (
-                <Link
-                  href="/log"
-                  className="text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700"
-                >
-                  Full dose form
-                </Link>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* RECENT ACTIVITY feed */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 lg:col-span-2">
-          <h2 className="text-lg font-semibold text-white mb-4">
-            Recent activity
-          </h2>
-
-          {recentFeed.length === 0 ? (
-            <p className="text-slate-500">
-              Nothing yet — everything you log shows up here.
-            </p>
-          ) : (
-            <ul className="divide-y divide-slate-800">
-              {recentFeed.map((item, index) => (
-                <li
-                  key={index}
-                  className="py-3 flex items-center justify-between gap-4"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg">{item.icon}</span>
-                    <div>
-                      <p className="text-white text-sm font-semibold">
-                        {item.text}
-                      </p>
-                      {item.sub && (
-                        <p className="text-sm text-slate-500">{item.sub}</p>
-                      )}
-                    </div>
-                  </div>
-                  <span className="text-sm text-slate-500 whitespace-nowrap">
-                    {item.when}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
-
-      {/* ---------- weekly weigh-in ---------- */}
-      <div
-        className={`bg-slate-900 border rounded-xl p-6 ${
-          weighinOverdue ? "border-amber-500/40" : "border-slate-800"
-        }`}
-      >
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h2 className="text-lg font-semibold text-white">
-              ⚖️ Weekly weigh-in
-            </h2>
-            <p
-              className={`text-sm mt-1 ${
-                weighinOverdue ? "text-amber-400" : "text-slate-500"
-              }`}
-            >
-              {weighinMessage}
-            </p>
-          </div>
-          {weighinOverdue && (
-            <Link
-              href="/progress"
-              className="bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-5 py-2 rounded-lg text-sm whitespace-nowrap"
-            >
-              Log weight
-            </Link>
-          )}
-        </div>
-
-        <label className="flex items-center gap-3 mt-4 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={weeklyEmail}
-            onChange={handleToggleWeeklyEmail}
-            className="w-4 h-4 accent-emerald-500"
-          />
-          <span className="text-sm text-slate-300">
-            📧 Email me a weekly weigh-in reminder
-          </span>
-        </label>
-      </div>
-
-      {/* ---------- schedule this month (peptide mode) ---------- */}
+      {/* ---------- schedule this month (peptide mode) — moved up ---------- */}
       {usesPeptides && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
@@ -1042,6 +870,52 @@ export default function Dashboard() {
           )}
         </div>
       )}
+
+      {/* ---------- recent activity (collapsible) ---------- */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <button
+          type="button"
+          onClick={() => setActivityOpen((open) => !open)}
+          aria-expanded={activityOpen}
+          className="w-full flex items-center justify-between text-left"
+        >
+          <h2 className="text-lg font-semibold text-white">Recent activity</h2>
+          <span className="text-slate-400 text-sm">
+            {activityOpen ? "▾" : "▸"}
+          </span>
+        </button>
+
+        {activityOpen &&
+          (recentFeed.length === 0 ? (
+            <p className="text-slate-500 mt-4">
+              Nothing yet — everything you log shows up here.
+            </p>
+          ) : (
+            <ul className="divide-y divide-slate-800 mt-4">
+              {recentFeed.map((item, index) => (
+                <li
+                  key={index}
+                  className="py-3 flex items-center justify-between gap-4"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg">{item.icon}</span>
+                    <div>
+                      <p className="text-white text-sm font-semibold">
+                        {item.text}
+                      </p>
+                      {item.sub && (
+                        <p className="text-sm text-slate-500">{item.sub}</p>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-sm text-slate-500 whitespace-nowrap">
+                    {item.when}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ))}
+      </div>
 
       {/* ---------- quick-log modal ---------- */}
       {quickOpen && (
