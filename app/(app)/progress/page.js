@@ -172,6 +172,9 @@ export default function ProgressPage() {
   const [logs, setLogs] = useState([]); // weight history, newest first
   const [range, setRange] = useState("30d"); // selected chart range
 
+  // weekly weigh-in email preference (this toggle moved here from the dashboard)
+  const [weeklyEmail, setWeeklyEmail] = useState(false);
+
   // weight form fields
   const [unit, setUnit] = useState("lbs");
   const [weight, setWeight] = useState("");
@@ -234,6 +237,7 @@ export default function ProgressPage() {
       await fetchLogs(session.user.id);
       await fetchMeasurements(session.user.id);
       await fetchPhotos(session.user.id);
+      await fetchWeighinPref(session.user.id);
       setLoading(false);
     }
     init();
@@ -318,6 +322,31 @@ export default function ProgressPage() {
       url: signed && signed[index] ? signed[index].signedUrl : "",
     }));
     setPhotos(withUrls);
+  }
+
+  // ---------- fetch the weekly weigh-in email preference ----------
+  async function fetchWeighinPref(uid) {
+    const { data } = await supabase
+      .from("profiles")
+      .select("weekly_weighin_email")
+      .eq("id", uid)
+      .single();
+    setWeeklyEmail(data && data.weekly_weighin_email ? true : false);
+  }
+
+  // ---------- toggle the weekly weigh-in email preference ----------
+  async function handleToggleWeeklyEmail() {
+    const next = !weeklyEmail;
+    setWeeklyEmail(next); // optimistic — flip the checkbox immediately
+
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({ weekly_weighin_email: next })
+      .eq("id", userId);
+
+    if (updateError) {
+      setWeeklyEmail(!next); // revert if the save didn't go through
+    }
   }
 
   // ---------- save a new weight entry ----------
@@ -647,6 +676,38 @@ export default function ProgressPage() {
   const newest = logs.length > 0 ? logs[0] : null;
   const oldest = logs.length > 0 ? logs[logs.length - 1] : null;
 
+  // ---------- weekly weigh-in nudge ----------
+  // Whole days since your most recent weigh-in (null = no weigh-ins yet).
+  // We compare midnight-to-midnight so a weigh-in "yesterday evening" reads
+  // as 1 day, not a fraction.
+  let daysSinceWeighin = null;
+  if (newest) {
+    const last = new Date(newest.logged_at);
+    const lastMidnight = new Date(
+      last.getFullYear(),
+      last.getMonth(),
+      last.getDate()
+    );
+    const now = new Date();
+    const todayMidnight = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate()
+    );
+    daysSinceWeighin = Math.round((todayMidnight - lastMidnight) / 86400000);
+  }
+  const weighinOverdue = daysSinceWeighin === null || daysSinceWeighin >= 7;
+  const weighinMessage =
+    daysSinceWeighin === null
+      ? "Log your first weight below to start tracking your progress."
+      : daysSinceWeighin === 0
+      ? "You weighed in today. Nice."
+      : daysSinceWeighin >= 7
+      ? `It's been ${daysSinceWeighin} days since your last weigh-in — log one below.`
+      : `Last weigh-in: ${daysSinceWeighin} ${
+          daysSinceWeighin === 1 ? "day" : "days"
+        } ago.`;
+
   // Total change since the first entry, shown in the newest entry's unit.
   let totalChange = null;
   if (logs.length > 1) {
@@ -791,6 +852,36 @@ export default function ProgressPage() {
         <p className="text-slate-400 mt-1">
           Log your weight and watch the trend over time.
         </p>
+      </div>
+
+      {/* ---------- weekly weigh-in nudge + email opt-in ---------- */}
+      <div
+        className={`bg-slate-900 rounded-xl p-6 border ${
+          weighinOverdue ? "border-amber-500/40" : "border-slate-800"
+        }`}
+      >
+        <h2 className="text-lg font-semibold text-white">
+          ⚖️ Weekly weigh-in
+        </h2>
+        <p
+          className={`text-sm mt-1 ${
+            weighinOverdue ? "text-amber-400" : "text-slate-500"
+          }`}
+        >
+          {weighinMessage}
+        </p>
+
+        <label className="flex items-center gap-3 mt-4 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={weeklyEmail}
+            onChange={handleToggleWeeklyEmail}
+            className="w-4 h-4 accent-emerald-500"
+          />
+          <span className="text-sm text-slate-300">
+            📧 Email me a weekly weigh-in reminder
+          </span>
+        </label>
       </div>
 
       {/* ---------- summary cards (only once there's data) ---------- */}
