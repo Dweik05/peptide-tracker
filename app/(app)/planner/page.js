@@ -1,36 +1,30 @@
 "use client";
 
 // ============================================================
-// PROTOCOL PLANNER (v3)  —  goes in:  app/(app)/planner/page.js
-// (FULL REPLACEMENT of v2.)
+// PROTOCOL PLANNER (v4)  —  goes in:  app/(app)/planner/page.js
+// (FULL REPLACEMENT of v3.)
 //
-// Day 22 · Chunk B: dose TITRATION. The protocol's dose can now
-// vary over time, entered one of three ways:
+// Day 22 · Chunk C: DRAFTS. You can now save a protocol as a
+// named draft that does NOT appear on the calendar, does NOT
+// send reminders, and does NOT affect streaks — then load it
+// back into the planner, activate it into a real schedule, or
+// delete it. (Use case: compare a few protocols before
+// committing to one.)
 //
-//   FLAT     — one dose for the whole protocol (exactly as v2).
-//   BY PHASE — a list of "X dose for N weeks" rows, e.g.
-//              0.5mg for 4 weeks, then 1.0mg for 4 weeks. The
-//              plan length is the sum of the phases.
-//   BY WEEK  — a dose box for each week of the plan length.
-//              Behind the scenes, runs of equal weeks collapse
-//              into phases, so it stores the same shape as
-//              "by phase".
+// Drafts live in their own `protocol_drafts` table (separate
+// from `reminders`) so they're physically incapable of leaking
+// into the calendar / emails / streaks. Each draft stores the
+// full planner setup as JSON, so Load restores every field.
 //
-// All titration shares ONE unit (you don't titrate mg→mcg).
-// The math (total amount, vials, cost, inventory coverage) sums
-// the VARYING dose across every dose date — it no longer assumes
-// a single flat dose. Saving writes `dose_phases` (Chunk A added
-// the column); `dose_amount` stores the starting dose so the
-// NOT-NULL column stays satisfied.
+// "Activate" and "Save schedule" both build their reminders row
+// through ONE shared function (buildReminderRow) so they can
+// never disagree.
 //
-// ⚠️ FRAMING unchanged: this is math on a protocol YOU enter.
-// Not a recommendation, not medical advice.
-//
-// (Saving as a DRAFT comes in Chunk C — this still only saves a
-// live schedule.)
+// Everything from v3 (flat / by-phase / by-week titration, the
+// math, the draw calculator) is unchanged.
 // ============================================================
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { PEPTIDES, VIAL_SIZES, convertAmount } from "../../lib/peptides";
@@ -114,9 +108,6 @@ function generateDoseDates(start, weeks, freq, pickedDays) {
   return out;
 }
 
-// Turn the active dose-entry mode into a dose_phases array (or
-// null for flat). For "by week", collapse consecutive equal
-// doses into phases.
 function buildPhases(doseMode, phases, weeklyDoses) {
   if (doseMode === "phases") {
     return phases.map((p) => ({
@@ -135,6 +126,93 @@ function buildPhases(doseMode, phases, weeklyDoses) {
     return out;
   }
   return null;
+}
+
+function effectiveWeeksOf(p) {
+  return p.doseMode === "phases"
+    ? p.phases.reduce((sum, ph) => sum + (parseInt(ph.weeks, 10) || 0), 0)
+    : Math.round(parseFloat(p.weeks)) || 0;
+}
+
+// THE shared row builder — used by BOTH "Save schedule" and
+// "Activate draft" so they can never produce different rows.
+// `p` is a protocol object (see getCurrentProtocol / normalizeDef).
+function buildReminderRow(p, userId) {
+  const builtPhases = buildPhases(p.doseMode, p.phases, p.weeklyDoses);
+  const effectiveWeeks = effectiveWeeksOf(p);
+
+  const startObj = dateFromString(p.startDate);
+  const endObj = new Date(startObj);
+  endObj.setDate(endObj.getDate() + Math.round(effectiveWeeks * 7) - 1);
+
+  const startingDose =
+    p.doseMode === "flat"
+      ? parseFloat(p.dose)
+      : builtPhases && builtPhases.length > 0
+      ? builtPhases[0].dose
+      : 0;
+
+  const interval = intervalDays(p.freq);
+  return {
+    user_id: userId,
+    peptide_name: p.peptide,
+    dose_amount: startingDose, // NOT-NULL column; for titration = starting dose
+    dose_phases: p.doseMode === "flat" ? null : builtPhases,
+    unit: p.doseUnit,
+    interval_days: interval ? interval : null,
+    days_of_week: interval ? null : [...p.pickedDays].sort((a, b) => a - b),
+    start_date: p.startDate,
+    end_date: toDateString(endObj),
+    duration_weeks: effectiveWeeks,
+    email_reminders: p.emailReminders,
+    active: true,
+  };
+}
+
+// Fill in defaults so an older/partial draft still loads safely.
+function normalizeDef(d) {
+  return {
+    peptide: d.peptide ?? "",
+    doseUnit: d.doseUnit ?? "mg",
+    freq: d.freq ?? "weekly",
+    customN: d.customN ?? "3",
+    pickedDays: d.pickedDays ?? [],
+    doseMode: d.doseMode ?? "flat",
+    dose: d.dose ?? "",
+    phases: d.phases ?? [{ dose: "", weeks: "4" }],
+    weeklyDoses: d.weeklyDoses ?? [],
+    weeks: d.weeks ?? "12",
+    startDate: d.startDate ?? getTodayString(),
+    vialSize: d.vialSize ?? "",
+    vialUnit: d.vialUnit ?? "mg",
+    costPerVial: d.costPerVial ?? "",
+    emailReminders: d.emailReminders ?? false,
+  };
+}
+
+// One-line summary for a draft card.
+function summarizeDraft(rawDef) {
+  const def = normalizeDef(rawDef);
+  const freqLabel =
+    (FREQUENCIES.find((f) => f.key === def.freq) || {}).label || def.freq;
+
+  let doseStr;
+  if (def.doseMode === "flat") {
+    doseStr = `${def.dose}${def.doseUnit}`;
+  } else {
+    const ph = buildPhases(def.doseMode, def.phases, def.weeklyDoses) || [];
+    if (ph.length > 0) {
+      const first = ph[0].dose;
+      const last = ph[ph.length - 1].dose;
+      doseStr =
+        first === last
+          ? `${first}${def.doseUnit}`
+          : `${first}→${last}${def.doseUnit} titrated`;
+    } else {
+      doseStr = "—";
+    }
+  }
+  return { doseStr, freqLabel, weeks: effectiveWeeksOf(def) };
 }
 
 const FREQUENCIES = [
@@ -184,9 +262,9 @@ export default function PlannerPage() {
 
   // dosing mode + per-mode inputs
   const [doseMode, setDoseMode] = useState("flat");
-  const [dose, setDose] = useState(""); // flat
-  const [phases, setPhases] = useState([{ dose: "", weeks: "4" }]); // by phase
-  const [weeklyDoses, setWeeklyDoses] = useState([]); // by week
+  const [dose, setDose] = useState("");
+  const [phases, setPhases] = useState([{ dose: "", weeks: "4" }]);
+  const [weeklyDoses, setWeeklyDoses] = useState([]);
 
   // vial size + cost
   const [vialSize, setVialSize] = useState("");
@@ -198,6 +276,19 @@ export default function PlannerPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [justSaved, setJustSaved] = useState(false);
+
+  // drafts
+  const [drafts, setDrafts] = useState([]);
+  const [draftName, setDraftName] = useState("");
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [draftError, setDraftError] = useState("");
+  const [draftSaved, setDraftSaved] = useState(false);
+  const [draftActionMsg, setDraftActionMsg] = useState("");
+  const [draftActionError, setDraftActionError] = useState("");
+  const [activatingId, setActivatingId] = useState(null);
+  // suppresses the weekday-seeding effects while a draft loads,
+  // so a draft's custom day selection isn't overwritten
+  const isLoadingDraft = useRef(false);
 
   // draw calculator
   const [drawVialMg, setDrawVialMg] = useState("");
@@ -214,19 +305,29 @@ export default function PlannerPage() {
         return;
       }
       setUserId(session.user.id);
-      const { data } = await supabase
-        .from("inventory")
-        .select("peptide_name, quantity_remaining, unit, cost")
-        .eq("user_id", session.user.id);
-      setInventory(data || []);
+
+      const [invRes, draftRes] = await Promise.all([
+        supabase
+          .from("inventory")
+          .select("peptide_name, quantity_remaining, unit, cost")
+          .eq("user_id", session.user.id),
+        supabase
+          .from("protocol_drafts")
+          .select("*")
+          .eq("user_id", session.user.id)
+          .order("created_at", { ascending: false }),
+      ]);
+      setInventory(invRes.data || []);
+      setDrafts(draftRes.data || []);
       setLoading(false);
     }
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // seed weekday picker from frequency
+  // seed weekday picker from frequency (suspended during a draft load)
   useEffect(() => {
+    if (isLoadingDraft.current) return;
     if (intervalDays(freq)) {
       setPickedDays([]);
       return;
@@ -236,13 +337,14 @@ export default function PlannerPage() {
   }, [freq, customN]);
 
   useEffect(() => {
+    if (isLoadingDraft.current) return;
     if (freq === "weekly") {
       setPickedDays([dateFromString(startDate).getDay()]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate]);
 
-  // keep the per-week dose boxes in sync with the plan length
+  // keep per-week dose boxes in sync with plan length
   useEffect(() => {
     if (doseMode !== "weekly") return;
     const n = Math.max(0, Math.min(104, Math.round(parseFloat(weeks)) || 0));
@@ -295,7 +397,6 @@ export default function PlannerPage() {
     );
   }
 
-  // phase editor handlers
   function updatePhase(index, field, value) {
     setPhases((current) =>
       current.map((p, i) => (i === index ? { ...p, [field]: value } : p))
@@ -313,6 +414,27 @@ export default function PlannerPage() {
     setWeeklyDoses((current) =>
       current.map((d, i) => (i === index ? value : d))
     );
+  }
+
+  // the current form as a protocol object (for save + draft)
+  function getCurrentProtocol() {
+    return {
+      peptide,
+      doseUnit,
+      freq,
+      customN,
+      pickedDays,
+      doseMode,
+      dose,
+      phases,
+      weeklyDoses,
+      weeks,
+      startDate,
+      vialSize,
+      vialUnit,
+      costPerVial,
+      emailReminders,
+    };
   }
 
   // ---------------- validity ----------------
@@ -346,7 +468,6 @@ export default function PlannerPage() {
   const validProtocol =
     peptide && doseValid && (!usesWeekdays || pickedDays.length > 0);
 
-  // plan length depends on mode
   const effectiveWeeks =
     doseMode === "phases"
       ? phases.reduce((sum, p) => sum + (parseInt(p.weeks, 10) || 0), 0)
@@ -377,7 +498,6 @@ export default function PlannerPage() {
     const totalAmount = dateDoses.reduce((sum, dd) => sum + dd.dose, 0);
     const dosesPerWeek = effectiveWeeks > 0 ? totalDoses / effectiveWeeks : 0;
 
-    // vials needed at the chosen vial size
     const vialSizeNumber = parseFloat(vialSize);
     let vialsNeeded = null;
     let vialUnitMismatch = false;
@@ -390,7 +510,6 @@ export default function PlannerPage() {
       }
     }
 
-    // current inventory coverage for this peptide (in doseUnit)
     let remainingInDoseUnit = 0;
     let inventoryMismatch = false;
     let hasInventory = false;
@@ -412,8 +531,6 @@ export default function PlannerPage() {
       remainingInDoseUnit += converted;
     }
 
-    // simulate how far current inventory stretches across the
-    // (possibly varying) doses — works for flat AND titrated
     let supply = remainingInDoseUnit;
     let dosesCovered = 0;
     let coverUntil = null;
@@ -428,7 +545,6 @@ export default function PlannerPage() {
     }
     const coversAll = hasInventory && dosesCovered === dateDoses.length;
 
-    // cost
     const costNumber = parseFloat(costPerVial);
     const estCost =
       vialsNeeded !== null && !isNaN(costNumber) && costNumber >= 0
@@ -454,40 +570,12 @@ export default function PlannerPage() {
     };
   }
 
-  // ---------------- saving the schedule ----------------
+  // ---------------- save a live schedule ----------------
   async function handleSave() {
     if (!validProtocol || !userId || saving) return;
     setSaving(true);
     setSaveError("");
-
-    const startObj = dateFromString(startDate);
-    const endObj = new Date(startObj);
-    endObj.setDate(endObj.getDate() + Math.round(effectiveWeeks * 7) - 1);
-
-    const builtPhases = buildPhases(doseMode, phases, weeklyDoses);
-    const startingDose =
-      doseMode === "flat"
-        ? parseFloat(dose)
-        : builtPhases.length > 0
-        ? builtPhases[0].dose
-        : 0;
-
-    const interval = intervalDays(freq);
-    const row = {
-      user_id: userId,
-      peptide_name: peptide,
-      dose_amount: startingDose, // NOT-NULL column; for titration = starting dose
-      dose_phases: doseMode === "flat" ? null : builtPhases,
-      unit: doseUnit,
-      interval_days: interval ? interval : null,
-      days_of_week: interval ? null : [...pickedDays].sort((a, b) => a - b),
-      start_date: startDate,
-      end_date: toDateString(endObj),
-      duration_weeks: effectiveWeeks,
-      email_reminders: emailReminders,
-      active: true,
-    };
-
+    const row = buildReminderRow(getCurrentProtocol(), userId);
     const { error } = await supabase.from("reminders").insert(row);
     setSaving(false);
     if (error) {
@@ -495,6 +583,90 @@ export default function PlannerPage() {
       return;
     }
     setJustSaved(true);
+  }
+
+  // ---------------- drafts ----------------
+  async function handleSaveDraft() {
+    if (!validProtocol || !userId || savingDraft) return;
+    setSavingDraft(true);
+    setDraftError("");
+    const name = draftName.trim() || `${peptide} protocol`;
+    const definition = getCurrentProtocol();
+    const { data, error } = await supabase
+      .from("protocol_drafts")
+      .insert({ user_id: userId, name, definition })
+      .select()
+      .single();
+    setSavingDraft(false);
+    if (error) {
+      setDraftError(error.message);
+      return;
+    }
+    setDrafts((current) => [data, ...current]);
+    setDraftName("");
+    setDraftSaved(true);
+  }
+
+  function handleLoadDraft(draft) {
+    const d = normalizeDef(draft.definition);
+    isLoadingDraft.current = true; // don't let the seeding effects clobber days
+
+    setPeptide(d.peptide);
+    setDoseUnit(d.doseUnit);
+    setFreq(d.freq);
+    setCustomN(d.customN);
+    setDoseMode(d.doseMode);
+    setDose(d.dose);
+    setPhases(d.phases);
+    setWeeklyDoses(d.weeklyDoses);
+    setWeeks(d.weeks);
+    setStartDate(d.startDate);
+    setVialSize(d.vialSize);
+    setVialUnit(d.vialUnit);
+    setCostPerVial(d.costPerVial);
+    setEmailReminders(d.emailReminders);
+    setPickedDays(d.pickedDays);
+
+    setDraftActionMsg(`Loaded "${draft.name}" into the planner above.`);
+    setDraftActionError("");
+
+    // release the guard after this render + its effects have run
+    setTimeout(() => {
+      isLoadingDraft.current = false;
+    }, 0);
+  }
+
+  async function handleActivateDraft(draft) {
+    if (!userId || activatingId) return;
+    setActivatingId(draft.id);
+    setDraftActionError("");
+    setDraftActionMsg("");
+    const row = buildReminderRow(normalizeDef(draft.definition), userId);
+    const { error } = await supabase.from("reminders").insert(row);
+    setActivatingId(null);
+    if (error) {
+      setDraftActionError(`Couldn't activate "${draft.name}": ${error.message}`);
+      return;
+    }
+    setDraftActionMsg(
+      `✓ Activated "${draft.name}" — it's now on your Calendar.`
+    );
+  }
+
+  async function handleDeleteDraft(draft) {
+    const sure = window.confirm(
+      `Delete the draft "${draft.name}"? This can't be undone. ` +
+        `(It only removes the saved draft — any schedules you already ` +
+        `activated are not affected.)`
+    );
+    if (!sure) return;
+    const { error } = await supabase
+      .from("protocol_drafts")
+      .delete()
+      .eq("id", draft.id);
+    if (!error) {
+      setDrafts((current) => current.filter((d) => d.id !== draft.id));
+    }
   }
 
   // ---------------- draw calculator ----------------
@@ -526,7 +698,8 @@ export default function PlannerPage() {
         <h1 className="text-2xl font-bold text-white">Protocol Planner</h1>
         <p className="text-slate-400 mt-1">
           Enter a protocol — flat or titrated — and the app works out the
-          supply, cost, and timing, then save it as a schedule.
+          supply, cost, and timing. Save it as a schedule, or keep it as a
+          draft.
         </p>
       </div>
 
@@ -557,7 +730,6 @@ export default function PlannerPage() {
             </select>
           </div>
 
-          {/* frequency */}
           <div>
             <label className="block text-sm text-slate-400 mb-1">
               How often
@@ -629,7 +801,6 @@ export default function PlannerPage() {
             </p>
           )}
 
-          {/* start date */}
           <div>
             <label className="block text-sm text-slate-400 mb-1">
               Start date
@@ -687,7 +858,6 @@ export default function PlannerPage() {
               </div>
             </div>
 
-            {/* plan length: editable for flat/weekly, derived for phases */}
             {doseMode === "phases" ? (
               <p className="text-sm text-slate-400">
                 Plan length:{" "}
@@ -713,7 +883,6 @@ export default function PlannerPage() {
               </div>
             )}
 
-            {/* FLAT dose input */}
             {doseMode === "flat" && (
               <div>
                 <label className="block text-sm text-slate-400 mb-1">
@@ -731,7 +900,6 @@ export default function PlannerPage() {
               </div>
             )}
 
-            {/* BY PHASE editor */}
             {doseMode === "phases" && (
               <div className="space-y-2">
                 <label className="block text-sm text-slate-400">
@@ -783,7 +951,6 @@ export default function PlannerPage() {
               </div>
             )}
 
-            {/* BY WEEK editor */}
             {doseMode === "weekly" && (
               <div className="space-y-2">
                 <label className="block text-sm text-slate-400">
@@ -952,7 +1119,6 @@ export default function PlannerPage() {
                   />
                 </div>
 
-                {/* inventory coverage */}
                 <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
                   {!plan.hasInventory ? (
                     <p className="text-sm text-slate-400">
@@ -985,7 +1151,6 @@ export default function PlannerPage() {
                   )}
                 </div>
 
-                {/* schedule preview */}
                 <div>
                   <p className="text-sm text-slate-400 mb-2">
                     Upcoming doses{" "}
@@ -1063,6 +1228,42 @@ export default function PlannerPage() {
                       Couldn't save: {saveError}
                     </p>
                   )}
+
+                  {/* save as a draft */}
+                  <div className="pt-3 border-t border-slate-800/60 space-y-2">
+                    <p className="text-xs text-slate-500">
+                      Not ready to commit? Save it as a draft instead — drafts
+                      stay off the calendar and send no reminders.
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        maxLength={80}
+                        placeholder="Draft name (optional)"
+                        value={draftName}
+                        onChange={(e) => setDraftName(e.target.value)}
+                        className={inputClasses}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSaveDraft}
+                        disabled={savingDraft}
+                        className="shrink-0 px-4 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 text-sm font-semibold hover:bg-slate-700 disabled:opacity-50"
+                      >
+                        {savingDraft ? "Saving..." : "Save draft"}
+                      </button>
+                    </div>
+                    {draftSaved && (
+                      <p className="text-sm text-emerald-400">
+                        ✓ Draft saved — see it in "Your drafts" below.
+                      </p>
+                    )}
+                    {draftError && (
+                      <p className="text-sm text-red-400">
+                        Couldn't save draft: {draftError}
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -1157,6 +1358,81 @@ export default function PlannerPage() {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* ---------- DRAFTS (full width, always visible) ---------- */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <h2 className="text-lg font-semibold text-white mb-1">Your drafts</h2>
+        <p className="text-sm text-slate-500 mb-4">
+          Saved protocols you haven't committed to. They don't appear on the
+          calendar, send reminders, or affect streaks until you activate one.
+        </p>
+
+        {(draftActionMsg || draftActionError) && (
+          <div className="mb-4">
+            {draftActionMsg && (
+              <p className="text-sm text-emerald-400">{draftActionMsg}</p>
+            )}
+            {draftActionError && (
+              <p className="text-sm text-red-400">{draftActionError}</p>
+            )}
+          </div>
+        )}
+
+        {drafts.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            No drafts yet — build a protocol above and hit "Save draft".
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {drafts.map((draft) => {
+              const s = summarizeDraft(draft.definition);
+              return (
+                <li
+                  key={draft.id}
+                  className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-white">
+                      {draft.name}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {summarizeDraft(draft.definition).doseStr
+                        ? `${s.doseStr} · ${s.freqLabel} · ${s.weeks} ${
+                            s.weeks === 1 ? "week" : "weeks"
+                          }`
+                        : `${s.freqLabel} · ${s.weeks} weeks`}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleLoadDraft(draft)}
+                      className="text-xs px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700"
+                    >
+                      Load
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleActivateDraft(draft)}
+                      disabled={activatingId === draft.id}
+                      className="text-xs px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-50"
+                    >
+                      {activatingId === draft.id ? "Activating..." : "Activate"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteDraft(draft)}
+                      className="text-xs px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-red-400 hover:bg-red-500/10 hover:border-red-500/20"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
     </div>
   );
