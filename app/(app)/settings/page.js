@@ -68,6 +68,10 @@ const TIMEZONES = [
 
 const DEFAULT_TZ = "America/Toronto";
 
+// Default-unit options for the Preferences card.
+const WEIGHT_UNITS = ["lbs", "kg", "st"];
+const MEASUREMENT_UNITS = ["in", "cm"];
+
 // The browser's best guess at the user's timezone, e.g. "America/Toronto".
 function detectBrowserTimezone() {
   try {
@@ -113,6 +117,14 @@ export default function SettingsPage() {
   const [tzError, setTzError] = useState("");
   const [tzSuccess, setTzSuccess] = useState("");
 
+  // preferences
+  const [usesPeptides, setUsesPeptides] = useState(true);
+  const [defaultWeightUnit, setDefaultWeightUnit] = useState("lbs");
+  const [defaultMeasurementUnit, setDefaultMeasurementUnit] = useState("in");
+  const [savingPrefs, setSavingPrefs] = useState(false);
+  const [prefsError, setPrefsError] = useState("");
+  const [prefsSuccess, setPrefsSuccess] = useState("");
+
   // a ticking clock so the "time there" preview stays live
   const [, setClockTick] = useState(0);
 
@@ -135,7 +147,9 @@ export default function SettingsPage() {
       // load the saved timezone (falls back to the browser's guess)
       const { data } = await supabase
         .from("profiles")
-        .select("timezone")
+        .select(
+          "timezone, uses_peptides, default_weight_unit, default_measurement_unit"
+        )
         .eq("id", session.user.id)
         .single();
 
@@ -143,6 +157,12 @@ export default function SettingsPage() {
         setTimezone(data.timezone);
       } else {
         setTimezone(detectBrowserTimezone());
+      }
+
+      if (data) {
+        setUsesPeptides(data.uses_peptides ?? true);
+        setDefaultWeightUnit(data.default_weight_unit || "lbs");
+        setDefaultMeasurementUnit(data.default_measurement_unit || "in");
       }
 
       setLoading(false);
@@ -212,6 +232,33 @@ export default function SettingsPage() {
     setTzError("");
     setTzSuccess("");
     setTimezone(detectBrowserTimezone());
+  }
+
+  // ---------- save preferences (profiles) ----------
+  async function handleSavePreferences() {
+    setPrefsError("");
+    setPrefsSuccess("");
+
+    if (!userId) return;
+
+    setSavingPrefs(true);
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({
+        uses_peptides: usesPeptides,
+        default_weight_unit: defaultWeightUnit,
+        default_measurement_unit: defaultMeasurementUnit,
+      })
+      .eq("id", userId);
+    setSavingPrefs(false);
+
+    if (updateError) {
+      setPrefsError(`Couldn't save preferences: ${updateError.message}`);
+      return;
+    }
+
+    setPrefsSuccess("Preferences saved!");
+    setTimeout(() => setPrefsSuccess(""), 4000);
   }
 
   // Build the dropdown options: the curated list, plus the current
@@ -359,6 +406,98 @@ export default function SettingsPage() {
               Use my current timezone
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* ---------- preferences ---------- */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <h2 className="text-lg font-semibold text-white mb-1">Preferences</h2>
+        <p className="text-sm text-slate-500 mb-4">
+          How the app works for you day to day.
+        </p>
+
+        {prefsError && (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg px-4 py-3 text-sm mb-4">
+            {prefsError}
+          </div>
+        )}
+        {prefsSuccess && (
+          <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg px-4 py-3 text-sm mb-4">
+            {prefsSuccess}
+          </div>
+        )}
+
+        <div className="space-y-5">
+          {/* peptide mode */}
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={usesPeptides}
+              onChange={(event) => setUsesPeptides(event.target.checked)}
+              className="w-4 h-4 mt-1 accent-emerald-500"
+            />
+            <span>
+              <span className="block text-sm text-white font-medium">
+                I use peptides
+              </span>
+              <span className="block text-sm text-slate-500">
+                Turns on the peptide features — dose logging, inventory, and
+                schedules. Turn this off if you only want to track weight,
+                measurements, photos, and workouts.
+              </span>
+            </span>
+          </label>
+
+          {/* default units */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">
+                Default weight unit
+              </label>
+              <select
+                value={defaultWeightUnit}
+                onChange={(event) => setDefaultWeightUnit(event.target.value)}
+                className={inputClasses}
+              >
+                {WEIGHT_UNITS.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">
+                Default measurement unit
+              </label>
+              <select
+                value={defaultMeasurementUnit}
+                onChange={(event) =>
+                  setDefaultMeasurementUnit(event.target.value)
+                }
+                className={inputClasses}
+              >
+                {MEASUREMENT_UNITS.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <p className="text-sm text-slate-500">
+            Your preferred units for logging weight and body measurements.
+          </p>
+
+          <button
+            type="button"
+            onClick={handleSavePreferences}
+            disabled={savingPrefs}
+            className="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-8 py-3 rounded-lg disabled:opacity-50"
+          >
+            {savingPrefs ? "Saving..." : "Save preferences"}
+          </button>
         </div>
       </div>
     </div>

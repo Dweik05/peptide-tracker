@@ -1,13 +1,18 @@
 // ============================================================
 // EMAIL REMINDER ROUTE  —  goes in:
 //   app/api/reminders/send/route.js
-// (FULL REPLACEMENT of the Chunk C / Day 20 version.)
+// (FULL REPLACEMENT of the weigh-in / Day 24 version.)
 //
-// Day 22 · Chunk A: ONE change — the digest now states the dose
-// that applies TODAY (via doseOnDate), so a titrated schedule
-// emails "0.5 mg" early on and "1 mg" later. Flat schedules are
-// unaffected. Everything else (the secret gate, the service-role
-// client, the dedupe stamp) is identical to before.
+// Day 25B: per-user timezones. Until now "today" was computed in
+// America/Toronto for EVERYONE, so a user in Los Angeles or London
+// could get the wrong day's digest. Now each user's "today" is
+// derived from their saved profiles.timezone (set on the Settings
+// page), falling back to America/Toronto if they haven't picked one.
+//
+// Nothing about WHAT gets sent changed — same dose digest, same
+// weekly weigh-in nudge, same secret gate, same dedupe. The only
+// change is that the day each user is evaluated against is now
+// computed in their own timezone.
 // ============================================================
 
 import { createClient } from "@supabase/supabase-js";
@@ -20,9 +25,9 @@ import {
 // Never cache this route — it must run fresh every time.
 export const dynamic = "force-dynamic";
 
-// "Today" is computed in THIS timezone no matter where the
-// server runs (Vercel servers think in UTC). Per-user timezones
-// can come later with the Settings page.
+// The fallback timezone for any user who hasn't saved one yet, and
+// the zone the summary response is dated in. Vercel servers think in
+// UTC, so we never rely on the server's local time.
 const APP_TIMEZONE = "America/Toronto";
 
 // Until you verify a real domain with Resend (launch week),
@@ -30,9 +35,15 @@ const APP_TIMEZONE = "America/Toronto";
 // Resend account email. Swap to your domain at launch.
 const FROM_ADDRESS = "Peptide Tracker <onboarding@resend.dev>";
 
-// today as "YYYY-MM-DD" in the app timezone
-function todayStringInAppTimezone() {
-  return new Date().toLocaleDateString("en-CA", { timeZone: APP_TIMEZONE });
+// today as "YYYY-MM-DD" in a specific IANA timezone (e.g. "America/Toronto").
+// en-CA formats dates as YYYY-MM-DD. Falls back to the app timezone if the
+// saved zone is somehow invalid.
+function todayStringInZone(tz) {
+  try {
+    return new Date().toLocaleDateString("en-CA", { timeZone: tz });
+  } catch (e) {
+    return new Date().toLocaleDateString("en-CA", { timeZone: APP_TIMEZONE });
+  }
 }
 
 export async function GET(request) {
@@ -61,10 +72,36 @@ export async function GET(request) {
     { auth: { autoRefreshToken: false, persistSession: false } }
   );
 
-  const todayString = todayStringInAppTimezone();
-  const today = dateFromString(todayString);
+  // ---------- 2b. each user's timezone (default = app timezone) ----------
+  // We pull every profile's saved zone once and look them up by id below.
+  const { data: tzProfiles } = await supabaseAdmin
+    .from("profiles")
+    .select("id, timezone");
 
-  // ---------- 3. which schedules are due today? ----------
+  const tzByUser = {};
+  for (const profile of tzProfiles || []) {
+    tzByUser[profile.id] = profile.timezone || APP_TIMEZONE;
+  }
+  const zoneForUser = (uid) => tzByUser[uid] || APP_TIMEZONE;
+
+  // Compute each zone's "today" at most once (a tiny cache). Returns the
+  // local date string, a Date for that day (noon), and a pretty label.
+  const todayCache = {};
+  function todayForZone(tz) {
+    if (!todayCache[tz]) {
+      const todayString = todayStringInZone(tz);
+      const today = dateFromString(todayString);
+      const prettyDate = today.toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+      });
+      todayCache[tz] = { todayString, today, prettyDate };
+    }
+    return todayCache[tz];
+  }
+
+  // ---------- 3. which schedules are due today (in each user's zone)? ----------
   const { data: schedules, error } = await supabaseAdmin
     .from("reminders")
     .select("*")
@@ -75,11 +112,13 @@ export async function GET(request) {
     return Response.json({ error: error.message }, { status: 500 });
   }
 
-  const due = (schedules || []).filter(
-    (schedule) =>
+  const due = (schedules || []).filter((schedule) => {
+    const { todayString, today } = todayForZone(zoneForUser(schedule.user_id));
+    return (
       isDoseDay(schedule, today) &&
       schedule.last_reminder_sent !== todayString // not already reminded today
-  );
+    );
+  });
 
   // ---------- 4. group due schedules by user ----------
   const byUser = {};
@@ -88,17 +127,14 @@ export async function GET(request) {
     byUser[schedule.user_id].push(schedule);
   }
 
-  const prettyDate = today.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
-
-  // ---------- 5. one digest email per user ----------
+  // ---------- 5. one digest email per user (dated in their local day) ----------
   const results = [];
-  const sentScheduleIds = [];
 
   for (const [userId, userSchedules] of Object.entries(byUser)) {
+    const { todayString, today, prettyDate } = todayForZone(
+      zoneForUser(userId)
+    );
+
     const { data: userData, error: userError } =
       await supabaseAdmin.auth.admin.getUserById(userId);
     const email = userData && userData.user ? userData.user.email : null;
@@ -154,18 +190,19 @@ export async function GET(request) {
     }
 
     results.push({ email, sent: true, doses: userSchedules.length });
-    for (const s of userSchedules) sentScheduleIds.push(s.id);
-  }
 
-  // ---------- 6. stamp them as reminded today ----------
-  if (sentScheduleIds.length > 0) {
+    // stamp THIS user's schedules with THEIR local date (zones differ,
+    // so we can't do one bulk update across everyone).
     await supabaseAdmin
       .from("reminders")
       .update({ last_reminder_sent: todayString })
-      .in("id", sentScheduleIds);
+      .in(
+        "id",
+        userSchedules.map((s) => s.id)
+      );
   }
 
-  // ---------- 7. weekly weigh-in reminders ----------
+  // ---------- 6. weekly weigh-in reminders ----------
   // Independent of dose reminders. For each opted-in user, send a nudge
   // only if they're overdue (no weigh-in in the last 7 days) AND we
   // haven't already reminded them in the last 7 days (weekly dedupe).
@@ -179,6 +216,7 @@ export async function GET(request) {
 
   for (const profile of weighinProfiles || []) {
     const uid = profile.id;
+    const { todayString, today, prettyDate } = todayForZone(zoneForUser(uid));
 
     // dedupe: already reminded within the last 7 days? skip.
     if (profile.last_weighin_reminder_sent) {
@@ -249,7 +287,7 @@ export async function GET(request) {
   }
 
   return Response.json({
-    date: todayString,
+    date: todayStringInZone(APP_TIMEZONE),
     dueSchedules: due.length,
     results: results,
     weighinReminders: weighinResults,
