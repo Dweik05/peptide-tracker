@@ -24,6 +24,7 @@ import { PEPTIDES, UNITS } from "../../lib/peptides";
 import { INJECTION_SITE_GROUPS } from "../../lib/sites";
 import { deductFromInventory } from "../../lib/inventory-helpers";
 import MiniCalendar from "../../components/MiniCalendar";
+import OnboardingChecklist from "../../components/OnboardingChecklist";
 import { isDoseDay, toDateString, dateFromString, doseOnDate } from "../../lib/schedule-helpers";
 
 const LOW_STOCK_PERCENT = 20;
@@ -633,6 +634,9 @@ export default function Dashboard() {
           </button>
         )}
       </div>
+
+      {/* ---------- onboarding checklist (new users only) ---------- */}
+      <OnboardingChecklist />
 
       {/* ---------- banners ---------- */}
       {error && (
