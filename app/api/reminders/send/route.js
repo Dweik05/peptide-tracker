@@ -13,6 +13,11 @@
 // weekly weigh-in nudge, same secret gate, same dedupe. The only
 // change is that the day each user is evaluated against is now
 // computed in their own timezone.
+//
+// Day 25D: travel mode. Users can set an away window on Settings
+// (profiles.travel_start / travel_end). While their local today is
+// inside that window they're skipped for BOTH the dose digest and
+// the weekly weigh-in nudge. Their schedules are left untouched.
 // ============================================================
 
 import { createClient } from "@supabase/supabase-js";
@@ -72,17 +77,32 @@ export async function GET(request) {
     { auth: { autoRefreshToken: false, persistSession: false } }
   );
 
-  // ---------- 2b. each user's timezone (default = app timezone) ----------
-  // We pull every profile's saved zone once and look them up by id below.
+  // ---------- 2b. each user's timezone + travel window ----------
+  // Pull every profile's saved zone and travel dates once; look them up by id.
   const { data: tzProfiles } = await supabaseAdmin
     .from("profiles")
-    .select("id, timezone");
+    .select("id, timezone, travel_start, travel_end");
 
   const tzByUser = {};
+  const travelByUser = {};
   for (const profile of tzProfiles || []) {
     tzByUser[profile.id] = profile.timezone || APP_TIMEZONE;
+    travelByUser[profile.id] = {
+      start: profile.travel_start,
+      end: profile.travel_end,
+    };
   }
   const zoneForUser = (uid) => tzByUser[uid] || APP_TIMEZONE;
+
+  // A user is "away" when their local today falls inside their saved travel
+  // window (inclusive). Travel dates and todayString are both "YYYY-MM-DD",
+  // so a plain string comparison is also chronological.
+  const isAway = (uid, todayString) => {
+    const t = travelByUser[uid];
+    return (
+      t && t.start && t.end && todayString >= t.start && todayString <= t.end
+    );
+  };
 
   // Compute each zone's "today" at most once (a tiny cache). Returns the
   // local date string, a Date for that day (noon), and a pretty label.
@@ -116,7 +136,8 @@ export async function GET(request) {
     const { todayString, today } = todayForZone(zoneForUser(schedule.user_id));
     return (
       isDoseDay(schedule, today) &&
-      schedule.last_reminder_sent !== todayString // not already reminded today
+      schedule.last_reminder_sent !== todayString && // not already reminded today
+      !isAway(schedule.user_id, todayString) // not away on a trip
     );
   });
 
@@ -217,6 +238,9 @@ export async function GET(request) {
   for (const profile of weighinProfiles || []) {
     const uid = profile.id;
     const { todayString, today, prettyDate } = todayForZone(zoneForUser(uid));
+
+    // away on a trip? skip.
+    if (isAway(uid, todayString)) continue;
 
     // dedupe: already reminded within the last 7 days? skip.
     if (profile.last_weighin_reminder_sent) {

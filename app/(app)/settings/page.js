@@ -94,6 +94,29 @@ function timeInZone(tz) {
   }
 }
 
+// Today's date as "YYYY-MM-DD" in the browser's local time. Used only to
+// describe the current travel-mode status to the user.
+function todayLocalString() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+// Pretty-print a "YYYY-MM-DD" string, e.g. "Jun 20, 2026". Built at noon so
+// it never shifts a day from timezone math.
+function prettyYmd(ymd) {
+  if (!ymd) return "";
+  const parts = ymd.split("-").map(Number);
+  const date = new Date(parts[0], parts[1] - 1, parts[2], 12);
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 const inputClasses =
   "w-full bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-700 focus:border-emerald-500 focus:outline-none placeholder:text-slate-500";
 
@@ -125,6 +148,13 @@ export default function SettingsPage() {
   const [prefsError, setPrefsError] = useState("");
   const [prefsSuccess, setPrefsSuccess] = useState("");
 
+  // travel mode
+  const [travelStart, setTravelStart] = useState("");
+  const [travelEnd, setTravelEnd] = useState("");
+  const [savingTravel, setSavingTravel] = useState(false);
+  const [travelError, setTravelError] = useState("");
+  const [travelSuccess, setTravelSuccess] = useState("");
+
   // a ticking clock so the "time there" preview stays live
   const [, setClockTick] = useState(0);
 
@@ -148,7 +178,7 @@ export default function SettingsPage() {
       const { data } = await supabase
         .from("profiles")
         .select(
-          "timezone, uses_peptides, default_weight_unit, default_measurement_unit"
+          "timezone, uses_peptides, default_weight_unit, default_measurement_unit, travel_start, travel_end"
         )
         .eq("id", session.user.id)
         .single();
@@ -163,6 +193,8 @@ export default function SettingsPage() {
         setUsesPeptides(data.uses_peptides ?? true);
         setDefaultWeightUnit(data.default_weight_unit || "lbs");
         setDefaultMeasurementUnit(data.default_measurement_unit || "in");
+        setTravelStart(data.travel_start || "");
+        setTravelEnd(data.travel_end || "");
       }
 
       setLoading(false);
@@ -261,11 +293,96 @@ export default function SettingsPage() {
     setTimeout(() => setPrefsSuccess(""), 4000);
   }
 
+  // ---------- save travel dates (profiles) ----------
+  async function handleSaveTravel() {
+    setTravelError("");
+    setTravelSuccess("");
+
+    if (!userId) return;
+
+    // both dates, or neither
+    if ((travelStart && !travelEnd) || (!travelStart && travelEnd)) {
+      setTravelError("Please set both an 'Away from' and a 'Back on' date.");
+      return;
+    }
+    if (travelStart && travelEnd && travelEnd < travelStart) {
+      setTravelError("'Back on' must be the same day as or after 'Away from'.");
+      return;
+    }
+
+    setSavingTravel(true);
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({
+        travel_start: travelStart || null,
+        travel_end: travelEnd || null,
+      })
+      .eq("id", userId);
+    setSavingTravel(false);
+
+    if (updateError) {
+      setTravelError(`Couldn't save travel dates: ${updateError.message}`);
+      return;
+    }
+
+    setTravelSuccess("Travel dates saved.");
+    setTimeout(() => setTravelSuccess(""), 4000);
+  }
+
+  // ---------- clear travel dates (profiles) ----------
+  async function handleClearTravel() {
+    setTravelError("");
+    setTravelSuccess("");
+
+    if (!userId) return;
+
+    setSavingTravel(true);
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({ travel_start: null, travel_end: null })
+      .eq("id", userId);
+    setSavingTravel(false);
+
+    if (updateError) {
+      setTravelError(`Couldn't clear travel dates: ${updateError.message}`);
+      return;
+    }
+
+    setTravelStart("");
+    setTravelEnd("");
+    setTravelSuccess("Travel mode cleared.");
+    setTimeout(() => setTravelSuccess(""), 4000);
+  }
+
   // Build the dropdown options: the curated list, plus the current
   // value pinned to the top if it isn't already one of them.
   const options = TIMEZONES.some((tz) => tz.value === timezone)
     ? TIMEZONES
     : [{ value: timezone, label: timezone }, ...TIMEZONES];
+
+  // Travel-mode status text + tone for the card's banner.
+  const todayS = todayLocalString();
+  let travelTone = "off";
+  let travelText =
+    "Travel mode is off. Set the dates you'll be away to pause reminder emails.";
+  if (travelStart && travelEnd) {
+    if (todayS >= travelStart && todayS <= travelEnd) {
+      travelTone = "active";
+      travelText = `Travel mode is on — reminder emails are paused through ${prettyYmd(
+        travelEnd
+      )}.`;
+    } else if (todayS < travelStart) {
+      travelTone = "scheduled";
+      travelText = `Travel mode is scheduled for ${prettyYmd(
+        travelStart
+      )} – ${prettyYmd(travelEnd)}.`;
+    } else {
+      travelTone = "past";
+      travelText = `Your last travel window (${prettyYmd(travelStart)} – ${prettyYmd(
+        travelEnd
+      )}) has passed. Clear it or set new dates.`;
+    }
+  }
 
   // ---------- page ----------
 
@@ -497,6 +614,88 @@ export default function SettingsPage() {
             className="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-8 py-3 rounded-lg disabled:opacity-50"
           >
             {savingPrefs ? "Saving..." : "Save preferences"}
+          </button>
+        </div>
+      </div>
+
+      {/* ---------- travel mode ---------- */}
+      <div
+        className={`bg-slate-900 rounded-xl p-6 border ${
+          travelTone === "active" ? "border-amber-500/40" : "border-slate-800"
+        }`}
+      >
+        <h2 className="text-lg font-semibold text-white mb-1">Travel mode</h2>
+        <p className="text-sm text-slate-500 mb-4">
+          Going away? Pause your reminder emails for a date range — your
+          schedules stay exactly as they are.
+        </p>
+
+        {travelError && (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg px-4 py-3 text-sm mb-4">
+            {travelError}
+          </div>
+        )}
+        {travelSuccess && (
+          <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg px-4 py-3 text-sm mb-4">
+            {travelSuccess}
+          </div>
+        )}
+
+        <div
+          className={`rounded-lg px-4 py-3 text-sm mb-4 ${
+            travelTone === "active"
+              ? "bg-amber-500/10 text-amber-300"
+              : travelTone === "scheduled"
+              ? "bg-slate-800 text-slate-300"
+              : "bg-slate-800 text-slate-400"
+          }`}
+        >
+          {travelText}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm text-slate-400 mb-1">
+              Away from
+            </label>
+            <input
+              type="date"
+              value={travelStart}
+              onChange={(event) => setTravelStart(event.target.value)}
+              className={`${inputClasses} [color-scheme:dark]`}
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-slate-400 mb-1">Back on</label>
+            <input
+              type="date"
+              value={travelEnd}
+              onChange={(event) => setTravelEnd(event.target.value)}
+              className={`${inputClasses} [color-scheme:dark]`}
+            />
+          </div>
+        </div>
+        <p className="text-sm text-slate-500 mt-1">
+          Reminders pause from the start of "Away from" through "Back on,"
+          inclusive.
+        </p>
+
+        <div className="flex flex-wrap gap-3 mt-4">
+          <button
+            type="button"
+            onClick={handleSaveTravel}
+            disabled={savingTravel}
+            className="bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-8 py-3 rounded-lg disabled:opacity-50"
+          >
+            {savingTravel ? "Saving..." : "Save travel dates"}
+          </button>
+          <button
+            type="button"
+            onClick={handleClearTravel}
+            disabled={savingTravel}
+            className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold px-6 py-3 rounded-lg border border-slate-700 disabled:opacity-50"
+          >
+            Clear
           </button>
         </div>
       </div>

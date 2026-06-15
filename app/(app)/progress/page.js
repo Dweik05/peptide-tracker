@@ -237,7 +237,7 @@ export default function ProgressPage() {
       await fetchLogs(session.user.id);
       await fetchMeasurements(session.user.id);
       await fetchPhotos(session.user.id);
-      await fetchWeighinPref(session.user.id);
+      await fetchProfilePrefs(session.user.id);
       setLoading(false);
     }
     init();
@@ -324,14 +324,20 @@ export default function ProgressPage() {
     setPhotos(withUrls);
   }
 
-  // ---------- fetch the weekly weigh-in email preference ----------
-  async function fetchWeighinPref(uid) {
+  // ---------- fetch profile prefs (weigh-in email + default units) ----------
+  async function fetchProfilePrefs(uid) {
     const { data } = await supabase
       .from("profiles")
-      .select("weekly_weighin_email")
+      .select(
+        "weekly_weighin_email, default_weight_unit, default_measurement_unit"
+      )
       .eq("id", uid)
       .single();
-    setWeeklyEmail(data && data.weekly_weighin_email ? true : false);
+    if (!data) return;
+    setWeeklyEmail(data.weekly_weighin_email ? true : false);
+    // start the logging forms in the units chosen on the Settings page
+    if (data.default_weight_unit) setUnit(data.default_weight_unit);
+    if (data.default_measurement_unit) setMUnit(data.default_measurement_unit);
   }
 
   // ---------- toggle the weekly weigh-in email preference ----------
