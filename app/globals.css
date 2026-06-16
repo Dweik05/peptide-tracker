@@ -1,8 +1,44 @@
 @import "tailwindcss";
 
+/* ============================================================
+   PEPTIDE TRACKER — central palette
+   This is the ONE place your colors live. Change a value here and
+   the whole app changes with it, because every page already uses
+   these `slate-` / `emerald-` / `amber-` / `red-` classes.
+
+   The app is intentionally dark everywhere, so the background is
+   now fixed dark instead of following the visitor's computer
+   theme (which could leave the app looking broken in light mode).
+   ============================================================ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0A0E0D; /* page background (deepest) */
+  --foreground: #ECF1EF; /* default text */
+}
+
+@theme {
+  /* Surfaces — retuned to a calm near-black with a faint green cast */
+  --color-slate-950: #0A0E0D; /* page background */
+  --color-slate-900: #131A18; /* cards */
+  --color-slate-800: #1F2926; /* borders, inputs, hover fills */
+  --color-slate-700: #2A3431; /* stronger borders / hover */
+
+  /* Text — soft greys */
+  --color-slate-600: #586461; /* faint hints */
+  --color-slate-500: #788481; /* secondary text, placeholders */
+  --color-slate-400: #8A9693; /* labels, most secondary text */
+  --color-slate-300: #AAB4B1; /* lighter secondary text */
+
+  /* Accent — emerald, pulled back to a calmer, more clinical tone */
+  --color-emerald-400: #4FD6B4; /* links, active states, dots */
+  --color-emerald-500: #1FB089; /* primary buttons, focus rings */
+  --color-emerald-600: #199A77; /* button hover */
+
+  /* Status — muted so they sit quietly in the palette */
+  --color-amber-400: #E0A23A;
+  --color-amber-500: #D69A33;
+  --color-red-400: #E5736B;
+  --color-red-500: #D85C54;
 }
 
 @theme inline {
@@ -10,13 +46,6 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {

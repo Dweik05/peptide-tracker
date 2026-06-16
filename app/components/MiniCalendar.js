@@ -2,7 +2,6 @@
 
 // ============================================================
 // MINI CALENDAR  —  goes in:  app/components/MiniCalendar.js
-// (NEW file — create it inside app/components/)
 //
 // Day 23: a compact, read-only month grid. It's deliberately
 // "dumb" — you hand it the dates to dot and it renders them, so
@@ -19,6 +18,10 @@
 // as the full Calendar page — a stale Tailwind build can't break
 // the grid). No outer card here: drop it inside a card in the
 // parent and give it a heading there.
+//
+// NOTE: the colors below are hardcoded hex values (not Tailwind
+// classes), so they don't pick up the central palette in
+// globals.css automatically. They're set by hand to match it.
 // ============================================================
 
 import { useState } from "react";
@@ -26,9 +29,9 @@ import { toDateString } from "../lib/schedule-helpers";
 
 const DAY_INITIALS = ["S", "M", "T", "W", "T", "F", "S"]; // index = getDay()
 
-const GRID_LINE = "#1e293b"; // slate-800
+const GRID_LINE = "#1F2926"; // border (matches new --color-slate-800)
 const CELL_MIN_HEIGHT = "clamp(30px, 6vw, 40px)";
-const TODAY_RING = "inset 0 0 0 1px #10b981"; // emerald-500
+const TODAY_RING = "inset 0 0 0 1px #1FB089"; // accent (matches new --color-emerald-500)
 
 function buildCells(year, month, weekStartsOn) {
   const first = new Date(year, month, 1, 12);
@@ -84,7 +87,7 @@ export default function MiniCalendar({
 
   const cellBase = {
     minHeight: CELL_MIN_HEIGHT,
-    backgroundColor: "#0f172a", // slate-900
+    backgroundColor: "#131A18", // card surface (matches new --color-slate-900)
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -141,7 +144,7 @@ export default function MiniCalendar({
             return (
               <div
                 key={`blank-${index}`}
-                style={{ ...cellBase, backgroundColor: "rgba(15,23,42,0.5)" }}
+                style={{ ...cellBase, backgroundColor: "rgba(19,26,24,0.5)" }}
               />
             );
           }
@@ -171,7 +174,7 @@ export default function MiniCalendar({
                       width: 5,
                       height: 5,
                       borderRadius: "50%",
-                      backgroundColor: "#34d399", // emerald-400
+                      backgroundColor: "#4FD6B4", // scheduled (matches new --color-emerald-400)
                     }}
                   />
                 )}
@@ -181,7 +184,7 @@ export default function MiniCalendar({
                       width: 5,
                       height: 5,
                       borderRadius: "50%",
-                      backgroundColor: "#38bdf8", // sky-400
+                      backgroundColor: "#4FB6E6", // logged (calm sky)
                     }}
                   />
                 )}
@@ -199,7 +202,7 @@ export default function MiniCalendar({
               width: 5,
               height: 5,
               borderRadius: "50%",
-              backgroundColor: "#34d399",
+              backgroundColor: "#4FD6B4",
               display: "inline-block",
             }}
           />
@@ -212,7 +215,7 @@ export default function MiniCalendar({
                 width: 5,
                 height: 5,
                 borderRadius: "50%",
-                backgroundColor: "#38bdf8",
+                backgroundColor: "#4FB6E6",
                 display: "inline-block",
               }}
             />
