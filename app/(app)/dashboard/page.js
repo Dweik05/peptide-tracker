@@ -1,19 +1,14 @@
 "use client";
 
 // ============================================================
-// DASHBOARD (v2)  —  goes in:  app/(app)/dashboard/page.js
+// DASHBOARD (v3 — reskinned)  —  goes in:  app/(app)/dashboard/page.js
 //
-// Day 23 · Chunk A: a "Schedule this month" card with the
-// MiniCalendar — scheduled dose days (emerald) from your saved
-// schedules, plus the doses you actually logged (sky). The
-// scheduled days are titration-aware (same isDoseDay/doseOnDate
-// the Calendar page uses). Peptide mode only.
-//
-// Everything else from Day 13 is unchanged. The only additions:
-//   - import MiniCalendar + schedule helpers
-//   - fetch the user's `reminders` (schedules)
-//   - compute this-month's scheduled + logged date strings
-//   - render the new card
+// This is the SAME dashboard as before, with the new visual
+// language applied: refined stat cards, more breathing room, and
+// a cohesive line-icon set in place of the emoji. Every piece of
+// logic (data fetching, streak math, inventory, the titration-
+// aware schedule, the quick-log save, peptide/non-peptide modes)
+// is unchanged. Only the markup changed.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -28,6 +23,79 @@ import OnboardingChecklist from "../../components/OnboardingChecklist";
 import { isDoseDay, toDateString, dateFromString, doseOnDate } from "../../lib/schedule-helpers";
 
 const LOW_STOCK_PERCENT = 20;
+
+// ---------------- icons (cohesive line set, replaces emoji) ----------------
+function Icon({ name, className = "w-4 h-4" }) {
+  const stroke = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.7,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+  };
+  const paths = {
+    zap: <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" />,
+    flame: (
+      <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
+    ),
+    check: <path d="M20 6 9 17l-5-5" />,
+    alertTriangle: (
+      <>
+        <path d="M10.3 4.3 2.6 17.5A1.5 1.5 0 0 0 3.9 20h16.2a1.5 1.5 0 0 0 1.3-2.5L13.7 4.3a1.5 1.5 0 0 0-2.6 0z" />
+        <path d="M12 9.5v4" />
+        <path d="M12 17h.01" />
+      </>
+    ),
+    alertCircle: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 8v4" />
+        <path d="M12 16h.01" />
+      </>
+    ),
+    chevron: <path d="M6 9l6 6 6-6" />,
+    close: <path d="M18 6 6 18M6 6l12 12" />,
+    calendar: (
+      <>
+        <rect x="3" y="4.5" width="18" height="16.5" rx="2" />
+        <path d="M3 9.5h18M8 2.5v4M16 2.5v4" />
+      </>
+    ),
+    arrowRight: <path d="M5 12h13M12 6l6 6-6 6" />,
+    dose: <path d="M12 3c4 5 6 8 6 11a6 6 0 0 1-12 0c0-3 2-6 6-11z" />,
+    weight: (
+      <>
+        <path d="M5 8h14l1.4 12a1 1 0 0 1-1 1.1H4.6a1 1 0 0 1-1-1.1L5 8z" />
+        <path d="M9 8a3 3 0 0 1 6 0" />
+      </>
+    ),
+    gym: <path d="M6 8v8M18 8v8M3 10v4M21 10v4M6 12h12" />,
+    measure: (
+      <>
+        <path d="M16 3 3 16l5 5L21 8z" />
+        <path d="M9.5 10.5l1.5 1.5M12.5 7.5l1.5 1.5M6.5 13.5l1.5 1.5" />
+      </>
+    ),
+    photo: (
+      <>
+        <rect x="3" y="6.5" width="18" height="13.5" rx="2" />
+        <circle cx="12" cy="13.5" r="3.3" />
+        <path d="M8.5 6.5 10 4h4l1.5 2.5" />
+      </>
+    ),
+    lab: (
+      <>
+        <path d="M9.5 3h5M10.5 3v6l-5 8.5A1.4 1.4 0 0 0 6.7 20h10.6a1.4 1.4 0 0 0 1.2-2.1L13.5 9V3" />
+        <path d="M8 14.5h8" />
+      </>
+    ),
+  };
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...stroke} aria-hidden="true">
+      {paths[name]}
+    </svg>
+  );
+}
 
 // ---------------- helper functions ----------------
 
@@ -364,8 +432,8 @@ export default function Dashboard() {
 
     setSuccess(
       deduction.message
-        ? `✅ Dose logged! ${deduction.message}`
-        : "✅ Dose logged successfully!"
+        ? `Dose logged! ${deduction.message}`
+        : "Dose logged successfully!"
     );
     setStockWarning(deduction.warning || "");
     setTimeout(() => setSuccess(""), 6000);
@@ -539,7 +607,7 @@ export default function Dashboard() {
   for (const d of doses) {
     feed.push({
       ts: new Date(d.logged_at).getTime(),
-      icon: "💉",
+      type: "dose",
       text: `${parseFloat(d.dose_amount)} ${d.unit} ${d.peptide_name}`,
       sub: d.injection_site,
       when: friendlyWhen(d.logged_at),
@@ -548,7 +616,7 @@ export default function Dashboard() {
   for (const w of recentWeights) {
     feed.push({
       ts: new Date(w.logged_at).getTime(),
-      icon: "⚖️",
+      type: "weight",
       text: `Weight: ${parseFloat(w.weight)} ${w.unit}`,
       sub: "",
       when: friendlyWhen(w.logged_at),
@@ -561,7 +629,7 @@ export default function Dashboard() {
         : "cardio";
     feed.push({
       ts: new Date(g.logged_at).getTime(),
-      icon: "🏋️",
+      type: "gym",
       text: `${g.exercise_name} — ${detail}`,
       sub: "",
       when: friendlyWhen(g.logged_at),
@@ -570,7 +638,7 @@ export default function Dashboard() {
   for (const m of measurements) {
     feed.push({
       ts: new Date(m.logged_at).getTime(),
-      icon: "📏",
+      type: "measure",
       text: "Body measurements",
       sub: "",
       when: friendlyWhen(m.logged_at),
@@ -579,7 +647,7 @@ export default function Dashboard() {
   for (const p of photos) {
     feed.push({
       ts: new Date(p.taken_at).getTime(),
-      icon: "📷",
+      type: "photo",
       text: "Progress photo",
       sub: p.caption || "",
       when: friendlyWhen(p.taken_at),
@@ -588,7 +656,7 @@ export default function Dashboard() {
   for (const l of labs) {
     feed.push({
       ts: new Date(`${l.tested_at}T12:00:00`).getTime(),
-      icon: "🧪",
+      type: "lab",
       text: `${l.biomarker}: ${parseFloat(l.value)}${l.unit ? ` ${l.unit}` : ""}`,
       sub: "",
       when: friendlyWhen(l.tested_at),
@@ -608,19 +676,25 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="p-8 max-w-6xl space-y-6">
+    <div className="p-6 md:p-8 max-w-6xl space-y-6">
       {/* ---------- greeting header ---------- */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">
+          <h1 className="text-2xl font-semibold tracking-tight text-white">
             {greeting}, {firstName}
           </h1>
-          <p className="text-slate-400 mt-1">
+          <p className="text-sm text-slate-400 mt-1">
             {now.toLocaleDateString(undefined, {
               weekday: "long",
               month: "long",
               day: "numeric",
             })}
+            {todaysDoses.length > 0 && (
+              <span className="text-slate-500">
+                {" "}
+                · {todaysDoses.length} logged today
+              </span>
+            )}
           </p>
         </div>
 
@@ -628,9 +702,10 @@ export default function Dashboard() {
           <button
             type="button"
             onClick={() => setQuickOpen(true)}
-            className="bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-6 py-3 rounded-lg"
+            className="inline-flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-emerald-950 font-semibold text-sm px-4 h-10 rounded-lg transition-colors"
           >
-            ⚡ Quick log
+            <Icon name="zap" className="w-4 h-4" />
+            Quick log
           </button>
         )}
       </div>
@@ -640,18 +715,21 @@ export default function Dashboard() {
 
       {/* ---------- banners ---------- */}
       {error && (
-        <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg px-4 py-3 text-sm">
-          {error}
+        <div className="flex items-start gap-2.5 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg px-4 py-3 text-sm">
+          <Icon name="alertCircle" className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>{error}</span>
         </div>
       )}
       {success && (
-        <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg px-4 py-3 text-sm">
-          {success}
+        <div className="flex items-start gap-2.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg px-4 py-3 text-sm">
+          <Icon name="check" className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>{success}</span>
         </div>
       )}
       {stockWarning && (
-        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-lg px-4 py-3 text-sm">
-          {stockWarning}
+        <div className="flex items-start gap-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-lg px-4 py-3 text-sm">
+          <Icon name="alertTriangle" className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>{stockWarning}</span>
         </div>
       )}
 
@@ -659,7 +737,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* streak — both modes */}
         <div
-          className={`bg-slate-900 border rounded-xl p-6 ${
+          className={`bg-slate-900 border rounded-xl p-5 ${
             streakState === "active"
               ? "border-emerald-500/40"
               : streakState === "warning"
@@ -667,9 +745,11 @@ export default function Dashboard() {
               : "border-slate-800"
           }`}
         >
-          <p className="text-sm text-slate-400">Streak</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            Streak
+          </p>
           <p
-            className={`text-2xl font-bold mt-1 ${
+            className={`text-[26px] leading-none font-semibold mt-3 flex items-center gap-2 ${
               streakState === "active"
                 ? "text-emerald-400"
                 : streakState === "warning"
@@ -677,33 +757,47 @@ export default function Dashboard() {
                 : "text-white"
             }`}
           >
-            🔥 {streak} {streak === 1 ? "day" : "days"}
+            <Icon name="flame" className="w-5 h-5" />
+            {streak}
+            <span className="text-base font-medium text-slate-400">
+              {streak === 1 ? "day" : "days"}
+            </span>
           </p>
           <p
-            className={`text-sm mt-1 ${
+            className={`text-xs mt-2.5 ${
               streakState === "warning" ? "text-amber-400" : "text-slate-500"
             }`}
           >
             {streakState === "none"
               ? "Log anything to start one"
               : streakState === "active"
-              ? "✓ Active — logged today"
-              : `⚠️ Log today to keep your ${streak}-day streak`}
+              ? "Active — logged today"
+              : `Log today to keep your ${streak}-day streak`}
           </p>
         </div>
 
         {/* current weight — both modes (links to Progress) */}
         <Link
           href="/progress"
-          className="block bg-slate-900 border border-slate-800 rounded-xl p-6 hover:bg-slate-800 transition-colors"
+          className="block bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-colors"
         >
-          <p className="text-sm text-slate-400">Current weight</p>
-          <p className="text-2xl font-bold text-white mt-1">
-            {latestWeight
-              ? `${parseFloat(latestWeight.weight).toFixed(1)} ${latestWeight.unit}`
-              : "—"}
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            Current weight
           </p>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-[26px] leading-none font-semibold text-white mt-3">
+            {latestWeight ? (
+              <>
+                {parseFloat(latestWeight.weight).toFixed(1)}
+                <span className="text-base font-medium text-slate-400">
+                  {" "}
+                  {latestWeight.unit}
+                </span>
+              </>
+            ) : (
+              "—"
+            )}
+          </p>
+          <p className="text-xs text-slate-500 mt-2.5">
             {weightChange === null
               ? latestWeight
                 ? "First entry"
@@ -715,7 +809,7 @@ export default function Dashboard() {
               : "No change since start"}
           </p>
           {latestWeight && (
-            <p className="text-xs text-slate-600 mt-1">
+            <p className="text-[11px] text-slate-600 mt-1">
               Weighed {weighInDate(latestWeight.logged_at)}
             </p>
           )}
@@ -726,15 +820,25 @@ export default function Dashboard() {
             {/* last dose — peptide mode (links to Log) */}
             <Link
               href="/log"
-              className="block bg-slate-900 border border-slate-800 rounded-xl p-6 hover:bg-slate-800 transition-colors"
+              className="block bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-colors"
             >
-              <p className="text-sm text-slate-400">Last dose</p>
-              <p className="text-2xl font-bold text-white mt-1">
-                {lastDose
-                  ? `${parseFloat(lastDose.dose_amount)} ${lastDose.unit}`
-                  : "—"}
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                Last dose
               </p>
-              <p className="text-sm text-slate-500 mt-1">
+              <p className="text-[26px] leading-none font-semibold text-white mt-3">
+                {lastDose ? (
+                  <>
+                    {parseFloat(lastDose.dose_amount)}
+                    <span className="text-base font-medium text-slate-400">
+                      {" "}
+                      {lastDose.unit}
+                    </span>
+                  </>
+                ) : (
+                  "—"
+                )}
+              </p>
+              <p className="text-xs text-slate-500 mt-2.5">
                 {lastDose
                   ? `${lastDose.peptide_name} · ${friendlyWhen(lastDose.logged_at)}`
                   : "No doses yet"}
@@ -744,25 +848,32 @@ export default function Dashboard() {
             {/* inventory — peptide mode (links to Inventory) */}
             <Link
               href="/inventory"
-              className={`block bg-slate-900 border rounded-xl p-6 hover:bg-slate-800 transition-colors ${
+              className={`block bg-slate-900 border rounded-xl p-5 hover:border-slate-700 transition-colors ${
                 lowStockItems.length > 0
                   ? "border-red-500/40"
                   : "border-slate-800"
               }`}
             >
-              <p className="text-sm text-slate-400">Inventory</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                Inventory
+              </p>
               <p
-                className={`text-2xl font-bold mt-1 ${
+                className={`text-[26px] leading-none font-semibold mt-3 flex items-center gap-2 ${
                   lowStockItems.length > 0 ? "text-red-400" : "text-white"
                 }`}
               >
-                {inventoryItems.length === 0
-                  ? "—"
-                  : lowStockItems.length > 0
-                  ? `⚠️ ${lowStockItems.length} low`
-                  : "Stocked"}
+                {inventoryItems.length === 0 ? (
+                  "—"
+                ) : lowStockItems.length > 0 ? (
+                  <>
+                    <Icon name="alertTriangle" className="w-5 h-5" />
+                    {lowStockItems.length} low
+                  </>
+                ) : (
+                  "Stocked"
+                )}
               </p>
-              <p className="text-sm text-slate-500 mt-1">
+              <p className="text-xs text-slate-500 mt-2.5">
                 {lowestItem
                   ? `Lowest: ${lowestItem.peptide_name} at ${lowestItem.percent.toFixed(0)}%`
                   : "Nothing tracked yet"}
@@ -772,23 +883,27 @@ export default function Dashboard() {
         ) : (
           <>
             {/* gym — non-peptide mode */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-              <p className="text-sm text-slate-400">Gym</p>
-              <p className="text-2xl font-bold text-white mt-1">
-                🏋️ {gymSets30}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                Gym
               </p>
-              <p className="text-sm text-slate-500 mt-1">
+              <p className="text-[26px] leading-none font-semibold text-white mt-3">
+                {gymSets30}
+              </p>
+              <p className="text-xs text-slate-500 mt-2.5">
                 sets in the last 30 days
               </p>
             </div>
 
             {/* photos — non-peptide mode */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-              <p className="text-sm text-slate-400">Progress photos</p>
-              <p className="text-2xl font-bold text-white mt-1">
-                📷 {photos.length}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                Progress photos
               </p>
-              <p className="text-sm text-slate-500 mt-1">
+              <p className="text-[26px] leading-none font-semibold text-white mt-3">
+                {photos.length}
+              </p>
+              <p className="text-xs text-slate-500 mt-2.5">
                 {photos.length > 0
                   ? `Last: ${friendlyWhen(photos[0].taken_at)}`
                   : "None in the last 90 days"}
@@ -798,18 +913,19 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* ---------- schedule this month (peptide mode) — moved up ---------- */}
+      {/* ---------- schedule this month (peptide mode) ---------- */}
       {usesPeptides && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-white">
+            <h2 className="text-base font-semibold text-white flex items-center gap-2">
+              <Icon name="calendar" className="w-[18px] h-[18px] text-slate-400" />
               Schedule this month
             </h2>
             <Link
               href="/calendar"
-              className="text-sm text-emerald-400 hover:text-emerald-300"
+              className="text-sm text-emerald-400 hover:text-emerald-300 inline-flex items-center gap-1"
             >
-              Open calendar →
+              Open calendar <Icon name="arrowRight" className="w-3.5 h-3.5" />
             </Link>
           </div>
 
@@ -832,9 +948,9 @@ export default function Dashboard() {
                     {upcomingDoses.map((day) => (
                       <li
                         key={day.key}
-                        className="bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2"
+                        className="bg-slate-800/40 border border-slate-800 rounded-lg px-3 py-2"
                       >
-                        <p className="text-xs text-slate-400">
+                        <p className="text-xs text-slate-500">
                           {day.key === todayKey
                             ? "Today"
                             : day.date.toLocaleDateString(undefined, {
@@ -883,15 +999,18 @@ export default function Dashboard() {
           aria-expanded={activityOpen}
           className="w-full flex items-center justify-between text-left"
         >
-          <h2 className="text-lg font-semibold text-white">Recent activity</h2>
-          <span className="text-slate-400 text-sm">
-            {activityOpen ? "▾" : "▸"}
-          </span>
+          <h2 className="text-base font-semibold text-white">Recent activity</h2>
+          <Icon
+            name="chevron"
+            className={`w-4 h-4 text-slate-400 transition-transform ${
+              activityOpen ? "rotate-180" : ""
+            }`}
+          />
         </button>
 
         {activityOpen &&
           (recentFeed.length === 0 ? (
-            <p className="text-slate-500 mt-4">
+            <p className="text-slate-500 mt-4 text-sm">
               Nothing yet — everything you log shows up here.
             </p>
           ) : (
@@ -902,17 +1021,19 @@ export default function Dashboard() {
                   className="py-3 flex items-center justify-between gap-4"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="text-lg">{item.icon}</span>
+                    <span className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 shrink-0">
+                      <Icon name={item.type} className="w-4 h-4" />
+                    </span>
                     <div>
-                      <p className="text-white text-sm font-semibold">
+                      <p className="text-white text-sm font-medium">
                         {item.text}
                       </p>
                       {item.sub && (
-                        <p className="text-sm text-slate-500">{item.sub}</p>
+                        <p className="text-xs text-slate-500">{item.sub}</p>
                       )}
                     </div>
                   </div>
-                  <span className="text-sm text-slate-500 whitespace-nowrap">
+                  <span className="text-xs text-slate-500 whitespace-nowrap">
                     {item.when}
                   </span>
                 </li>
@@ -928,26 +1049,28 @@ export default function Dashboard() {
           onClick={() => setQuickOpen(false)}
         >
           <div
-            className="bg-slate-900 border border-slate-800 rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
+            className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-white">
-                ⚡ Quick log a dose
+              <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                <Icon name="zap" className="w-[18px] h-[18px] text-emerald-400" />
+                Quick log a dose
               </h2>
               <button
                 type="button"
                 onClick={() => setQuickOpen(false)}
                 className="text-slate-500 hover:text-white"
-                title="Close"
+                aria-label="Close"
               >
-                ✕
+                <Icon name="close" className="w-5 h-5" />
               </button>
             </div>
 
             {qError && (
-              <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg px-4 py-3 text-sm mb-4">
-                {qError}
+              <div className="flex items-start gap-2.5 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg px-4 py-3 text-sm mb-4">
+                <Icon name="alertCircle" className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>{qError}</span>
               </div>
             )}
 
@@ -1067,7 +1190,7 @@ export default function Dashboard() {
               type="button"
               onClick={handleQuickLog}
               disabled={qSaving}
-              className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-3 rounded-lg disabled:opacity-50"
+              className="w-full bg-emerald-500 hover:bg-emerald-600 text-emerald-950 font-semibold py-3 rounded-lg disabled:opacity-50 transition-colors"
             >
               {qSaving ? "Saving..." : "Log dose"}
             </button>
