@@ -94,6 +94,31 @@ function timeInZone(tz) {
   }
 }
 
+// Current UTC offset for a timezone, e.g. "UTC-4", "UTC+9", "UTC+5:30".
+// Computed live off today's date, so it follows daylight saving on its own
+// (Toronto is UTC-4 in summer, UTC-5 in winter).
+function offsetLabel(tz) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      timeZoneName: "shortOffset",
+    }).formatToParts(new Date());
+    const part = parts.find((p) => p.type === "timeZoneName");
+    return part ? part.value.replace("GMT", "UTC") : "";
+  } catch (e) {
+    return "";
+  }
+}
+
+// A zone's dropdown label with its current offset appended, e.g.
+// "Eastern — Toronto / New York (UTC-4)". The plain UTC entry is left as-is.
+function labelWithOffset(value, label) {
+  if (label === "UTC") return "UTC";
+  const off = offsetLabel(value);
+  if (!off) return label;
+  return `${label} (${off})`;
+}
+
 // Today's date as "YYYY-MM-DD" in the browser's local time. Used only to
 // describe the current travel-mode status to the user.
 function todayLocalString() {
@@ -493,7 +518,7 @@ export default function SettingsPage() {
             >
               {options.map((tz) => (
                 <option key={tz.value} value={tz.value}>
-                  {tz.label}
+                  {labelWithOffset(tz.value, tz.label)}
                 </option>
               ))}
             </select>
