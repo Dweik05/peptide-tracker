@@ -1,25 +1,13 @@
 "use client";
 
 // ============================================================
-// GOALS & STREAKS (v2)  —  goes in:  app/(app)/goals/page.js
-// (FULL REPLACEMENT of the Chunk A file.)
+// GOALS & STREAKS (v2 — reskinned)  —  goes in:  app/(app)/goals/page.js
 //
-// Day 21 · Chunk B: the Goals section goes live.
-//
-//   WEIGHT GOAL — pick a target weight (+ optional date). Your
-//   starting point is captured from your latest weigh-in, and
-//   the progress bar updates ITSELF from new weigh-ins on the
-//   Progress page. Works for loss or gain. Units convert
-//   automatically (lbs / kg / st).
-//
-//   CUSTOM GOAL — any goal in your own words (+ optional date),
-//   marked complete by hand.
-//
-// Completing is always manual (even when a weight target is
-// reached) — the app suggests, you decide. Deleting a goal
-// never touches your weigh-ins or any other data.
-//
-// Streaks + achievements from Chunk A are unchanged.
+// Same page, restyled to the new design system: metric-style
+// streak cards, cohesive line icons in place of emoji, and dark
+// text on the emerald buttons. The achievement medals keep their
+// icons (those come from app/lib/streaks.js). All logic — streak
+// math, goal progress, create/complete/delete — is unchanged.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -33,6 +21,38 @@ import {
   computeLoggingStreaks,
   evaluateAchievements,
 } from "../../lib/streaks";
+
+// ---------------- icons (cohesive line set, replaces emoji) ----------------
+function Icon({ name, className = "w-4 h-4" }) {
+  const stroke = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.7,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+  };
+  const paths = {
+    calendar: (
+      <>
+        <rect x="3" y="4.5" width="18" height="16.5" rx="2" />
+        <path d="M3 9.5h18M8 2.5v4M16 2.5v4" />
+      </>
+    ),
+    plus: <path d="M12 5v14M5 12h14" />,
+    check: <path d="M20 6 9 17l-5-5" />,
+    checkCircle: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M8.5 12l2.5 2.5 4.5-5" />
+      </>
+    ),
+  };
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...stroke} aria-hidden="true">
+      {paths[name]}
+    </svg>
+  );
+}
 
 const inputClasses =
   "w-full bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-700 focus:border-emerald-500 focus:outline-none placeholder:text-slate-500";
@@ -306,10 +326,12 @@ export default function GoalsPage() {
   const completedGoals = goals.filter((g) => g.completed_at);
 
   return (
-    <div className="p-8 max-w-6xl space-y-6">
+    <div className="p-6 md:p-8 max-w-6xl space-y-6">
       {/* header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Goals & Streaks</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-white">
+          Goals &amp; Streaks
+        </h1>
         <p className="text-slate-400 mt-1">
           Consistency, computed live from your real history — nothing here can
           go stale.
@@ -318,10 +340,13 @@ export default function GoalsPage() {
 
       {/* today's dose still open? */}
       {adherence.todayPending && (
-        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-lg px-4 py-3 text-sm">
-          📌 Today is a scheduled dose day ({adherence.todayDue.join(", ")})
-          and it isn't logged yet. Logging it keeps your streak alive — an
-          unlogged today never breaks the streak until the day is over.
+        <div className="flex items-start gap-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-lg px-4 py-3 text-sm">
+          <Icon name="calendar" className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>
+            Today is a scheduled dose day ({adherence.todayDue.join(", ")}) and
+            it isn't logged yet. Logging it keeps your streak alive — an
+            unlogged today never breaks the streak until the day is over.
+          </span>
         </div>
       )}
 
@@ -392,11 +417,12 @@ export default function GoalsPage() {
               }}
               className={
                 showForm === "weight"
-                  ? "text-xs px-3 py-1.5 rounded-lg bg-emerald-500 text-white font-semibold"
-                  : "text-xs px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700"
+                  ? "text-xs px-3 py-1.5 rounded-lg bg-emerald-500 text-emerald-950 font-semibold inline-flex items-center gap-1.5"
+                  : "text-xs px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 inline-flex items-center gap-1.5"
               }
             >
-              ＋ Weight goal
+              <Icon name="plus" className="w-3.5 h-3.5" />
+              Weight goal
             </button>
             <button
               type="button"
@@ -406,11 +432,12 @@ export default function GoalsPage() {
               }}
               className={
                 showForm === "custom"
-                  ? "text-xs px-3 py-1.5 rounded-lg bg-emerald-500 text-white font-semibold"
-                  : "text-xs px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700"
+                  ? "text-xs px-3 py-1.5 rounded-lg bg-emerald-500 text-emerald-950 font-semibold inline-flex items-center gap-1.5"
+                  : "text-xs px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 inline-flex items-center gap-1.5"
               }
             >
-              ＋ Custom goal
+              <Icon name="plus" className="w-3.5 h-3.5" />
+              Custom goal
             </button>
           </div>
         </div>
@@ -483,7 +510,7 @@ export default function GoalsPage() {
                 type="button"
                 onClick={handleCreateWeightGoal}
                 disabled={savingGoal}
-                className="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+                className="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-emerald-950 text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
               >
                 {savingGoal ? "Saving..." : "Save weight goal"}
               </button>
@@ -537,7 +564,7 @@ export default function GoalsPage() {
               type="button"
               onClick={handleCreateCustomGoal}
               disabled={savingGoal || !customTitle.trim()}
-              className="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+              className="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-emerald-950 text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
             >
               {savingGoal ? "Saving..." : "Save custom goal"}
             </button>
@@ -609,9 +636,9 @@ export default function GoalsPage() {
                         </span>
                       </p>
                       {progress.reached && (
-                        <p className="text-xs text-emerald-400 mt-1">
-                          🎉 Target reached — mark it complete when you're
-                          ready.
+                        <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1.5">
+                          <Icon name="checkCircle" className="w-3.5 h-3.5" />
+                          Target reached — mark it complete when you're ready.
                         </p>
                       )}
                     </div>
@@ -621,9 +648,10 @@ export default function GoalsPage() {
                     <button
                       type="button"
                       onClick={() => handleComplete(goal)}
-                      className="text-xs px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20"
+                      className="text-xs px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 inline-flex items-center gap-1.5"
                     >
-                      ✓ Mark complete
+                      <Icon name="check" className="w-3.5 h-3.5" />
+                      Mark complete
                     </button>
                     <button
                       type="button"
@@ -650,7 +678,11 @@ export default function GoalsPage() {
                   className="flex items-center justify-between gap-2 bg-slate-800/30 border border-slate-800 rounded-lg px-3 py-2"
                 >
                   <p className="text-sm text-slate-400">
-                    <span className="text-emerald-400">✓</span> {goal.title}
+                    <Icon
+                      name="check"
+                      className="w-3.5 h-3.5 text-emerald-400 inline-block align-[-2px] mr-1"
+                    />
+                    {goal.title}
                     <span className="text-slate-500">
                       {" "}
                       · {formatShortDate(goal.completed_at.slice(0, 10))}
@@ -726,17 +758,19 @@ function StatCard({ label, value, sub, highlight }) {
           : "bg-slate-900 border border-slate-800 rounded-xl p-5"
       }
     >
-      <p className="text-xs text-slate-400">{label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+        {label}
+      </p>
       <p
         className={
           highlight
-            ? "text-3xl font-bold text-emerald-400 mt-1"
-            : "text-3xl font-bold text-white mt-1"
+            ? "text-[26px] leading-none font-semibold text-emerald-400 mt-3"
+            : "text-[26px] leading-none font-semibold text-white mt-3"
         }
       >
         {value}
       </p>
-      {sub && <p className="text-xs text-slate-500 mt-1">{sub}</p>}
+      {sub && <p className="text-xs text-slate-500 mt-2">{sub}</p>}
     </div>
   );
 }

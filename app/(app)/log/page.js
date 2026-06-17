@@ -1,17 +1,17 @@
 "use client";
 
 // ============================================================
-// LOG PAGE  —  goes in:  app/(app)/log/page.js
+// LOG PAGE (reskinned)  —  goes in:  app/(app)/log/page.js
 //
-// Day 15: the body diagram learns your history. 🗺️
+// Day 15: the body diagram learns your history.
 //
 // What's new:
 //   - SITE ROTATION MAP (right column): every injection site,
 //     heat-colored from your last 90 days of doses —
-//       🔴 used in the last 7 days (let it rest)
-//       🟠 used 7–14 days ago
-//       🟢 rested 14+ days
-//       ⚪ not used in the window
+//       red    — used in the last 7 days (let it rest)
+//       amber  — used 7–14 days ago
+//       emerald— rested 14+ days
+//       grey   — not used in the window
 //     Click any dot for its count + last-used date. Works for
 //     ALL your history — dropdown-logged and diagram-logged
 //     doses both light up, thanks to the new site-key
@@ -23,6 +23,12 @@
 //   - Layout: /log is now two-column on desktop like the rest
 //     of the app (form left, map + recent doses right; stacks
 //     on mobile). Every form behavior is unchanged.
+//
+// RESKIN: visuals only. The SVG body-map / heat-dot colors are
+// hardcoded hex (they can't read the central palette), so they
+// were retuned by hand here; the red/amber/emerald recency
+// meaning is unchanged. Emoji became line icons, and the
+// emerald-filled buttons use dark text. No logic changed.
 //
 // BODY_POINTS moved to app/lib/sites.js — this page imports it.
 // ============================================================
@@ -41,6 +47,46 @@ import {
 import { deductFromInventory } from "../../lib/inventory-helpers";
 import StackSummary from "../../components/StackSummary";
 
+// ---------------- icons (cohesive line set, replaces emoji) ----------------
+function Icon({ name, className = "w-4 h-4" }) {
+  const stroke = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.7,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+  };
+  const paths = {
+    pin: (
+      <>
+        <path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11z" />
+        <circle cx="12" cy="10" r="2.5" />
+      </>
+    ),
+    bulb: (
+      <>
+        <path d="M9.5 18h5M10.5 21h3" />
+        <path d="M12 3a6 6 0 0 0-3.6 10.8c.5.4.9 1 1 1.7l.1.5h5l.1-.5c.1-.7.5-1.3 1-1.7A6 6 0 0 0 12 3z" />
+      </>
+    ),
+    list: <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />,
+    body: (
+      <>
+        <circle cx="12" cy="5" r="2.6" />
+        <path d="M12 7.6v7.4M12 11l-4 2.6M12 11l4 2.6M8.6 20l3.4-5 3.4 5" />
+      </>
+    ),
+    chevronDown: <path d="M6 9l6 6 6-6" />,
+    chevronRight: <path d="M9 6l6 6-6 6" />,
+    check: <path d="M20 6 9 17l-5-5" />,
+  };
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...stroke} aria-hidden="true">
+      {paths[name]}
+    </svg>
+  );
+}
+
 // Local date+time as "YYYY-MM-DDTHH:MM" for the datetime picker.
 function getLocalDateTimeString() {
   const now = new Date();
@@ -57,12 +103,13 @@ function daysAgoText(ts) {
   return `${days} days ago`;
 }
 
-// Heat color for a site by how recently it was used
+// Heat color for a site by how recently it was used (palette-tuned;
+// recency meaning unchanged: red = rest, amber = recent, emerald = rested)
 function recencyFill(lastTs) {
   const days = (Date.now() - lastTs) / 86400000;
-  if (days < 7) return "#ef4444"; // red — let it rest
-  if (days < 14) return "#f59e0b"; // amber — recently used
-  return "#10b981"; // emerald — rested
+  if (days < 7) return "#D85C54"; // red — let it rest
+  if (days < 14) return "#D69A33"; // amber — recently used
+  return "#1FB089"; // emerald — rested
 }
 
 // ------------------------------------------------------------
@@ -72,33 +119,33 @@ function recencyFill(lastTs) {
 function BodySilhouette({ view }) {
   if (view === "front") {
     return (
-      <g fill="none" stroke="#475569" strokeWidth="1.5">
-        <ellipse cx="200" cy="60" rx="28" ry="35" fill="#1e293b" />
-        <rect x="190" y="90" width="20" height="20" fill="#1e293b" />
-        <path d="M155 110 L245 110 L250 300 L150 300 Z" fill="#1e293b" />
-        <path d="M155 115 L130 120 L120 240 L140 245 L150 130 Z" fill="#1e293b" />
-        <path d="M245 115 L270 120 L280 240 L260 245 L250 130 Z" fill="#1e293b" />
-        <path d="M150 300 L165 300 L170 420 L155 420 Z" fill="#1e293b" />
-        <path d="M235 300 L250 300 L245 420 L230 420 Z" fill="#1e293b" />
-        <line x1="155" y1="115" x2="245" y2="115" stroke="#64748b" />
-        <line x1="165" y1="185" x2="235" y2="185" stroke="#334155" />
-        <line x1="158" y1="245" x2="242" y2="245" stroke="#334155" />
-        <line x1="152" y1="295" x2="248" y2="295" stroke="#334155" />
+      <g fill="none" stroke="#586461" strokeWidth="1.5">
+        <ellipse cx="200" cy="60" rx="28" ry="35" fill="#1F2926" />
+        <rect x="190" y="90" width="20" height="20" fill="#1F2926" />
+        <path d="M155 110 L245 110 L250 300 L150 300 Z" fill="#1F2926" />
+        <path d="M155 115 L130 120 L120 240 L140 245 L150 130 Z" fill="#1F2926" />
+        <path d="M245 115 L270 120 L280 240 L260 245 L250 130 Z" fill="#1F2926" />
+        <path d="M150 300 L165 300 L170 420 L155 420 Z" fill="#1F2926" />
+        <path d="M235 300 L250 300 L245 420 L230 420 Z" fill="#1F2926" />
+        <line x1="155" y1="115" x2="245" y2="115" stroke="#788481" />
+        <line x1="165" y1="185" x2="235" y2="185" stroke="#2A3431" />
+        <line x1="158" y1="245" x2="242" y2="245" stroke="#2A3431" />
+        <line x1="152" y1="295" x2="248" y2="295" stroke="#2A3431" />
       </g>
     );
   }
   return (
-    <g fill="none" stroke="#475569" strokeWidth="1.5">
-      <ellipse cx="200" cy="60" rx="28" ry="35" fill="#1e293b" />
-      <rect x="190" y="90" width="20" height="20" fill="#1e293b" />
-      <path d="M155 110 L245 110 L250 300 L150 300 Z" fill="#1e293b" />
-      <path d="M155 115 L130 120 L120 240 L140 245 L150 130 Z" fill="#1e293b" />
-      <path d="M245 115 L270 120 L280 240 L260 245 L250 130 Z" fill="#1e293b" />
-      <path d="M150 300 L165 300 L170 420 L155 420 Z" fill="#1e293b" />
-      <path d="M235 300 L250 300 L245 420 L230 420 Z" fill="#1e293b" />
-      <line x1="200" y1="115" x2="200" y2="295" stroke="#334155" />
-      <line x1="175" y1="140" x2="225" y2="140" stroke="#334155" />
-      <line x1="170" y1="175" x2="230" y2="175" stroke="#334155" />
+    <g fill="none" stroke="#586461" strokeWidth="1.5">
+      <ellipse cx="200" cy="60" rx="28" ry="35" fill="#1F2926" />
+      <rect x="190" y="90" width="20" height="20" fill="#1F2926" />
+      <path d="M155 110 L245 110 L250 300 L150 300 Z" fill="#1F2926" />
+      <path d="M155 115 L130 120 L120 240 L140 245 L150 130 Z" fill="#1F2926" />
+      <path d="M245 115 L270 120 L280 240 L260 245 L250 130 Z" fill="#1F2926" />
+      <path d="M150 300 L165 300 L170 420 L155 420 Z" fill="#1F2926" />
+      <path d="M235 300 L250 300 L245 420 L230 420 Z" fill="#1F2926" />
+      <line x1="200" y1="115" x2="200" y2="295" stroke="#2A3431" />
+      <line x1="175" y1="140" x2="225" y2="140" stroke="#2A3431" />
+      <line x1="170" y1="175" x2="230" y2="175" stroke="#2A3431" />
     </g>
   );
 }
@@ -116,7 +163,7 @@ function BodyDiagram({ selectedPoint, onSelectPoint }) {
         <button
           onClick={() => setView("front")}
           className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
-            view === "front" ? "bg-emerald-500 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+            view === "front" ? "bg-emerald-500 text-emerald-950" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
           }`}
         >
           Front View
@@ -124,7 +171,7 @@ function BodyDiagram({ selectedPoint, onSelectPoint }) {
         <button
           onClick={() => setView("back")}
           className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
-            view === "back" ? "bg-emerald-500 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+            view === "back" ? "bg-emerald-500 text-emerald-950" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
           }`}
         >
           Back View
@@ -140,8 +187,8 @@ function BodyDiagram({ selectedPoint, onSelectPoint }) {
                 cx={point.cx}
                 cy={point.cy}
                 r="10"
-                fill={selectedPoint === point.label ? "#10b981" : "#1e293b"}
-                stroke={selectedPoint === point.label ? "#10b981" : "#475569"}
+                fill={selectedPoint === point.label ? "#1FB089" : "#1F2926"}
+                stroke={selectedPoint === point.label ? "#1FB089" : "#586461"}
                 strokeWidth="2"
                 opacity="0.85"
               />
@@ -149,7 +196,7 @@ function BodyDiagram({ selectedPoint, onSelectPoint }) {
                 cx={point.cx}
                 cy={point.cy}
                 r="4"
-                fill={selectedPoint === point.label ? "white" : "#64748b"}
+                fill={selectedPoint === point.label ? "white" : "#788481"}
               />
             </g>
           ))}
@@ -157,7 +204,9 @@ function BodyDiagram({ selectedPoint, onSelectPoint }) {
       </div>
 
       {selectedPoint && (
-        <p className="text-emerald-400 text-sm text-center mt-2">📍 Selected: {selectedPoint}</p>
+        <p className="text-emerald-400 text-sm mt-2 flex items-center justify-center gap-1.5">
+          <Icon name="pin" className="w-3.5 h-3.5" /> Selected: {selectedPoint}
+        </p>
       )}
       <p className="text-slate-500 text-xs text-center mt-1">Click a dot to mark your injection site</p>
     </div>
@@ -185,7 +234,8 @@ function RotationMap({ stats, unmappedCount, suggestion, onUseSite }) {
       {suggestion && (
         <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-4 py-3 mb-4 flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-emerald-400">
-            💡 Suggested next:{" "}
+            <Icon name="bulb" className="w-3.5 h-3.5 inline-block align-[-2px] mr-1" />
+            Suggested next:{" "}
             <span className="font-semibold">{suggestion.point.label}</span>{" "}
             <span className="text-emerald-400/70">
               {suggestion.lastTs === 0
@@ -198,7 +248,7 @@ function RotationMap({ stats, unmappedCount, suggestion, onUseSite }) {
           <button
             type="button"
             onClick={() => onUseSite(suggestion.point.label)}
-            className="text-sm bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-4 py-1.5 rounded-lg"
+            className="text-sm bg-emerald-500 hover:bg-emerald-600 text-emerald-950 font-semibold px-4 py-1.5 rounded-lg"
           >
             Use this site
           </button>
@@ -210,7 +260,7 @@ function RotationMap({ stats, unmappedCount, suggestion, onUseSite }) {
           type="button"
           onClick={() => setView("front")}
           className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
-            view === "front" ? "bg-emerald-500 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+            view === "front" ? "bg-emerald-500 text-emerald-950" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
           }`}
         >
           Front View
@@ -219,7 +269,7 @@ function RotationMap({ stats, unmappedCount, suggestion, onUseSite }) {
           type="button"
           onClick={() => setView("back")}
           className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
-            view === "back" ? "bg-emerald-500 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+            view === "back" ? "bg-emerald-500 text-emerald-950" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
           }`}
         >
           Back View
@@ -244,8 +294,8 @@ function RotationMap({ stats, unmappedCount, suggestion, onUseSite }) {
                   cx={point.cx}
                   cy={point.cy}
                   r="10"
-                  fill={stat ? recencyFill(stat.lastTs) : "#1e293b"}
-                  stroke={isSelected ? "#ffffff" : stat ? recencyFill(stat.lastTs) : "#475569"}
+                  fill={stat ? recencyFill(stat.lastTs) : "#1F2926"}
+                  stroke={isSelected ? "#ffffff" : stat ? recencyFill(stat.lastTs) : "#586461"}
                   strokeWidth={isSelected ? "2.5" : "2"}
                   opacity={stat ? 0.9 : 0.6}
                 />
@@ -256,7 +306,7 @@ function RotationMap({ stats, unmappedCount, suggestion, onUseSite }) {
                     textAnchor="middle"
                     fontSize="9"
                     fontWeight="700"
-                    fill="#0f172a"
+                    fill="#0A0E0D"
                     style={{ pointerEvents: "none" }}
                   >
                     {stat.count}
@@ -301,9 +351,10 @@ function RotationMap({ stats, unmappedCount, suggestion, onUseSite }) {
         type="button"
         onClick={() => setShowWhy(!showWhy)}
         aria-expanded={showWhy}
-        className="mt-4 text-sm text-slate-400 hover:text-white"
+        className="mt-4 text-sm text-slate-400 hover:text-white inline-flex items-center gap-1.5"
       >
-        {showWhy ? "▾" : "▸"} Why rotate sites?
+        <Icon name={showWhy ? "chevronDown" : "chevronRight"} className="w-3.5 h-3.5" />
+        Why rotate sites?
       </button>
       {showWhy && (
         <div className="mt-2 text-sm text-slate-400 bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 space-y-2">
@@ -510,8 +561,8 @@ export default function Log() {
 
       setSuccess(
         deduction.message
-          ? `✅ Dose logged! ${deduction.message}`
-          : "✅ Dose logged successfully!"
+          ? `Dose logged! ${deduction.message}`
+          : "Dose logged successfully!"
       );
       if (deduction.warning) {
         setStockWarning(deduction.warning);
@@ -565,9 +616,9 @@ export default function Log() {
   }
 
   return (
-    <main className="p-8">
+    <main className="p-6 md:p-8">
       <div className="max-w-6xl mx-auto">
-        <h1 className="text-2xl font-bold text-white mb-2">Log a Dose</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-white mb-2">Log a Dose</h1>
         <p className="text-slate-600 text-xs mb-6">{sessionDebug}</p>
 
         {error && (
@@ -577,8 +628,9 @@ export default function Log() {
         )}
 
         {success && (
-          <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-4 py-3 rounded-lg mb-4 text-sm">
-            {success}
+          <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-4 py-3 rounded-lg mb-4 text-sm flex items-center gap-2">
+            <Icon name="check" className="w-4 h-4 shrink-0" />
+            <span>{success}</span>
           </div>
         )}
 
@@ -649,19 +701,19 @@ export default function Log() {
               <div className="flex gap-2 mb-3">
                 <button
                   onClick={() => setSiteMode("dropdown")}
-                  className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                    siteMode === "dropdown" ? "bg-emerald-500 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors inline-flex items-center justify-center gap-1.5 ${
+                    siteMode === "dropdown" ? "bg-emerald-500 text-emerald-950" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
                   }`}
                 >
-                  📋 Dropdown
+                  <Icon name="list" className="w-4 h-4" /> Dropdown
                 </button>
                 <button
                   onClick={() => setSiteMode("diagram")}
-                  className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                    siteMode === "diagram" ? "bg-emerald-500 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors inline-flex items-center justify-center gap-1.5 ${
+                    siteMode === "diagram" ? "bg-emerald-500 text-emerald-950" : "bg-slate-800 text-slate-400 hover:bg-slate-700"
                   }`}
                 >
-                  🧍 Body Diagram
+                  <Icon name="body" className="w-4 h-4" /> Body Diagram
                 </button>
               </div>
 
@@ -731,7 +783,7 @@ export default function Log() {
             <button
               onClick={handleSave}
               disabled={saving}
-              className="w-full bg-emerald-500 text-white py-3 rounded-lg font-semibold hover:bg-emerald-600 disabled:opacity-50"
+              className="w-full bg-emerald-500 text-emerald-950 py-3 rounded-lg font-semibold hover:bg-emerald-600 disabled:opacity-50"
             >
               {saving ? "Saving..." : "Log Dose"}
             </button>

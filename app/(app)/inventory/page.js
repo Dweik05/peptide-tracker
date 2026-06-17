@@ -1,28 +1,13 @@
 "use client";
 
 // ============================================================
-// INVENTORY PAGE (v4)  —  goes in:  app/(app)/inventory/page.js
+// INVENTORY PAGE (v4 — reskinned)  —  goes in:  app/(app)/inventory/page.js
 //
-// Day 24 · Chunk A: vial counts + bacteriostatic water.
-//
-//   VIAL COUNTS: enter a peptide as "vial size × number of
-//   vials" (e.g. 10 mg × 10). One vial is "open" and drains as
-//   you dose; the rest stay unopened. The open/unopened split
-//   is DERIVED from the running total you already track —
-//       unopened = floor(total ÷ vial size)
-//       open vial = total − unopened × vial size
-//   so a 1 mg dose off 100 mg shows "9/10 mg · 9 unopened", and
-//   the auto-deduct logic is unchanged.
-//
-//   BAC WATER: a separate item type (mL, bottles). It has no
-//   dose math, never auto-deducts, and never shows in the dose
-//   dropdowns — it just lives here so you can track it.
-//
-// Old rows (added before this update, with no vial_size) fall
-// back to the original "X of Y remaining" display.
-//
-// Requires the Day 24 SQL (adds vial_size, vial_count,
-// item_type) — run it first.
+// Same Inventory page, restyled to the new design system:
+// metric-style summary cards, cohesive line icons in place of
+// emoji, and dark text on the emerald buttons for legibility.
+// All logic (vial math, per-item stats, fetch, save, delete) is
+// unchanged — only the markup changed.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -37,6 +22,32 @@ import {
 import StackSummary from "../../components/StackSummary";
 
 const LOW_STOCK_PERCENT = 20;
+
+// ---------------- icons (cohesive line set, replaces emoji) ----------------
+function Icon({ name, className = "w-4 h-4" }) {
+  const stroke = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.7,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+  };
+  const paths = {
+    close: <path d="M18 6 6 18M6 6l12 12" />,
+    vial: (
+      <>
+        <path d="M9 2v14a3 3 0 0 0 6 0V2" />
+        <path d="M8 2h8M9 10h6" />
+      </>
+    ),
+    droplet: <path d="M12 3c4 5 6 8 6 11a6 6 0 0 1-12 0c0-3 2-6 6-11z" />,
+  };
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...stroke} aria-hidden="true">
+      {paths[name]}
+    </svg>
+  );
+}
 
 // ---------------- helper functions ----------------
 
@@ -356,10 +367,12 @@ export default function InventoryPage() {
   }
 
   return (
-    <div className="p-8 max-w-6xl space-y-6">
+    <div className="p-6 md:p-8 max-w-6xl space-y-6">
       {/* ---------- header ---------- */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Inventory</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-white">
+          Inventory
+        </h1>
         <p className="text-slate-400 mt-1">
           Know exactly how much you have left and when to reorder.
         </p>
@@ -368,17 +381,21 @@ export default function InventoryPage() {
       {/* ---------- summary cards ---------- */}
       {items.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-            <p className="text-sm text-slate-400">Peptides tracked</p>
-            <p className="text-2xl font-bold text-white mt-1">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Peptides tracked
+            </p>
+            <p className="text-[26px] leading-none font-semibold text-white mt-3">
               {peptideItems.length}
             </p>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-            <p className="text-sm text-slate-400">Low stock</p>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Low stock
+            </p>
             <p
-              className={`text-2xl font-bold mt-1 ${
+              className={`text-[26px] leading-none font-semibold mt-3 ${
                 lowStockCount > 0 ? "text-red-400" : "text-white"
               }`}
             >
@@ -386,9 +403,11 @@ export default function InventoryPage() {
             </p>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-            <p className="text-sm text-slate-400">Total spent</p>
-            <p className="text-2xl font-bold text-white mt-1">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Total spent
+            </p>
+            <p className="text-[26px] leading-none font-semibold text-white mt-3">
               ${totalSpent.toFixed(2)}
             </p>
           </div>
@@ -452,7 +471,7 @@ export default function InventoryPage() {
                             <p className="text-sm text-slate-300 mt-1">
                               {vb.open > 0.0001 && (
                                 <>
-                                  🔓 Open vial:{" "}
+                                  Open vial:{" "}
                                   <span className="text-white font-semibold">
                                     {cleanNum(vb.open)}/{cleanNum(vb.size)}{" "}
                                     {item.unit}
@@ -460,7 +479,6 @@ export default function InventoryPage() {
                                   ·{" "}
                                 </>
                               )}
-                              📦{" "}
                               <span className="text-white font-semibold">
                                 {vb.unopened}
                               </span>{" "}
@@ -483,10 +501,10 @@ export default function InventoryPage() {
                       <button
                         type="button"
                         onClick={() => handleDeleteItem(item.id)}
-                        className="text-slate-500 hover:text-red-400 text-sm"
+                        className="text-slate-500 hover:text-red-400"
                         title="Delete product"
                       >
-                        ✕
+                        <Icon name="close" className="w-4 h-4" />
                       </button>
                     </div>
 
@@ -558,8 +576,12 @@ export default function InventoryPage() {
               {/* ---------- bac water section ---------- */}
               {bacItems.length > 0 && (
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-                  <h2 className="text-lg font-semibold text-white mb-3">
-                    💧 Bacteriostatic water
+                  <h2 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+                    <Icon
+                      name="droplet"
+                      className="w-[18px] h-[18px] text-slate-400"
+                    />
+                    Bacteriostatic water
                   </h2>
                   <div className="space-y-3">
                     {bacItems.map((item) => {
@@ -606,10 +628,10 @@ export default function InventoryPage() {
                           <button
                             type="button"
                             onClick={() => handleDeleteItem(item.id)}
-                            className="text-slate-500 hover:text-red-400 text-sm"
+                            className="text-slate-500 hover:text-red-400"
                             title="Delete"
                           >
-                            ✕
+                            <Icon name="close" className="w-4 h-4" />
                           </button>
                         </div>
                       );
@@ -627,7 +649,9 @@ export default function InventoryPage() {
 
         {/* ---------- RIGHT COLUMN: add form ---------- */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-white mb-1">Add to inventory</h2>
+          <h2 className="text-lg font-semibold text-white mb-1">
+            Add to inventory
+          </h2>
           <p className="text-sm text-slate-500 mb-4">
             Enter what you bought as vial size × how many vials.
           </p>
@@ -653,11 +677,12 @@ export default function InventoryPage() {
               }}
               className={
                 itemType === "peptide"
-                  ? "flex-1 py-2 rounded-lg bg-emerald-500 text-white font-semibold"
-                  : "flex-1 py-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700"
+                  ? "flex-1 py-2 rounded-lg bg-emerald-500 text-emerald-950 font-semibold flex items-center justify-center gap-2"
+                  : "flex-1 py-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700 flex items-center justify-center gap-2"
               }
             >
-              💉 Peptide
+              <Icon name="vial" className="w-4 h-4" />
+              Peptide
             </button>
             <button
               type="button"
@@ -667,11 +692,12 @@ export default function InventoryPage() {
               }}
               className={
                 itemType === "bac_water"
-                  ? "flex-1 py-2 rounded-lg bg-emerald-500 text-white font-semibold"
-                  : "flex-1 py-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700"
+                  ? "flex-1 py-2 rounded-lg bg-emerald-500 text-emerald-950 font-semibold flex items-center justify-center gap-2"
+                  : "flex-1 py-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700 flex items-center justify-center gap-2"
               }
             >
-              💧 Bac water
+              <Icon name="droplet" className="w-4 h-4" />
+              Bac water
             </button>
           </div>
 
@@ -731,7 +757,7 @@ export default function InventoryPage() {
                   onClick={() => setInvUnit(unitOption)}
                   className={
                     unitOption === invUnit
-                      ? "px-4 py-2 rounded-lg bg-emerald-500 text-white font-semibold"
+                      ? "px-4 py-2 rounded-lg bg-emerald-500 text-emerald-950 font-semibold"
                       : "px-4 py-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700"
                   }
                 >
@@ -839,7 +865,7 @@ export default function InventoryPage() {
             type="button"
             onClick={handleSaveItem}
             disabled={saving}
-            className="mt-5 w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-8 py-3 rounded-lg disabled:opacity-50"
+            className="mt-5 w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-emerald-950 font-semibold px-8 py-3 rounded-lg disabled:opacity-50 transition-colors"
           >
             {saving
               ? "Saving..."

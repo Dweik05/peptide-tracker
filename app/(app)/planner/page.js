@@ -1,27 +1,13 @@
 "use client";
 
 // ============================================================
-// PROTOCOL PLANNER (v4)  —  goes in:  app/(app)/planner/page.js
-// (FULL REPLACEMENT of v3.)
+// PROTOCOL PLANNER (v4 — reskinned)  —  goes in:  app/(app)/planner/page.js
 //
-// Day 22 · Chunk C: DRAFTS. You can now save a protocol as a
-// named draft that does NOT appear on the calendar, does NOT
-// send reminders, and does NOT affect streaks — then load it
-// back into the planner, activate it into a real schedule, or
-// delete it. (Use case: compare a few protocols before
-// committing to one.)
-//
-// Drafts live in their own `protocol_drafts` table (separate
-// from `reminders`) so they're physically incapable of leaking
-// into the calendar / emails / streaks. Each draft stores the
-// full planner setup as JSON, so Load restores every field.
-//
-// "Activate" and "Save schedule" both build their reminders row
-// through ONE shared function (buildReminderRow) so they can
-// never disagree.
-//
-// Everything from v3 (flat / by-phase / by-week titration, the
-// math, the draw calculator) is unchanged.
+// Same planner, restyled to the new design system: metric-style
+// plan stats, cohesive line icons in place of emoji, and dark
+// text on the emerald buttons. All logic (flat / by-phase /
+// by-week titration, the math, drafts, the draw calculator) is
+// unchanged — only the markup changed.
 // ============================================================
 
 import { useState, useEffect, useRef } from "react";
@@ -29,6 +15,27 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { PEPTIDES, VIAL_SIZES, convertAmount } from "../../lib/peptides";
 import { doseOnDate } from "../../lib/schedule-helpers";
+
+// ---------------- icons (cohesive line set, replaces emoji) ----------------
+function Icon({ name, className = "w-4 h-4" }) {
+  const stroke = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.7,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+  };
+  const paths = {
+    close: <path d="M18 6 6 18M6 6l12 12" />,
+    plus: <path d="M12 5v14M5 12h14" />,
+    check: <path d="M20 6 9 17l-5-5" />,
+  };
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...stroke} aria-hidden="true">
+      {paths[name]}
+    </svg>
+  );
+}
 
 // ---------------- helpers ----------------
 
@@ -649,7 +656,7 @@ export default function PlannerPage() {
       return;
     }
     setDraftActionMsg(
-      `✓ Activated "${draft.name}" — it's now on your Calendar.`
+      `Activated "${draft.name}" — it's now on your Calendar.`
     );
   }
 
@@ -692,10 +699,12 @@ export default function PlannerPage() {
   }
 
   return (
-    <div className="p-8 max-w-6xl space-y-6">
+    <div className="p-6 md:p-8 max-w-6xl space-y-6">
       {/* header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Protocol Planner</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-white">
+          Protocol Planner
+        </h1>
         <p className="text-slate-400 mt-1">
           Enter a protocol — flat or titrated — and the app works out the
           supply, cost, and timing. Save it as a schedule, or keep it as a
@@ -779,7 +788,7 @@ export default function PlannerPage() {
                     onClick={() => toggleDay(day.value)}
                     className={
                       pickedDays.includes(day.value)
-                        ? "px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-sm font-semibold"
+                        ? "px-3 py-1.5 rounded-lg bg-emerald-500 text-emerald-950 text-sm font-semibold"
                         : "px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 text-sm hover:bg-slate-700"
                     }
                   >
@@ -828,7 +837,7 @@ export default function PlannerPage() {
                       onClick={() => setDoseMode(m.key)}
                       className={
                         doseMode === m.key
-                          ? "px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-sm font-semibold"
+                          ? "px-3 py-1.5 rounded-lg bg-emerald-500 text-emerald-950 text-sm font-semibold"
                           : "px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 text-sm hover:bg-slate-700"
                       }
                     >
@@ -937,16 +946,17 @@ export default function PlannerPage() {
                       className="text-slate-500 hover:text-red-400 disabled:opacity-30 px-1"
                       title="Remove phase"
                     >
-                      ✕
+                      <Icon name="close" className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 ))}
                 <button
                   type="button"
                   onClick={addPhase}
-                  className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700"
+                  className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 inline-flex items-center gap-1.5"
                 >
-                  ＋ Add phase
+                  <Icon name="plus" className="w-3.5 h-3.5" />
+                  Add phase
                 </button>
               </div>
             )}
@@ -1002,7 +1012,7 @@ export default function PlannerPage() {
                     }}
                     className={
                       String(size) === vialSize && presetSizes.unit === vialUnit
-                        ? "px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-sm font-semibold"
+                        ? "px-3 py-1.5 rounded-lg bg-emerald-500 text-emerald-950 text-sm font-semibold"
                         : "px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 text-sm hover:bg-slate-700"
                     }
                   >
@@ -1212,15 +1222,18 @@ export default function PlannerPage() {
                     type="button"
                     onClick={handleSave}
                     disabled={saving}
-                    className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-semibold py-3 rounded-lg transition-colors"
+                    className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-emerald-950 font-semibold py-3 rounded-lg transition-colors"
                   >
                     {saving ? "Saving..." : "Save schedule"}
                   </button>
 
                   {justSaved && (
-                    <p className="text-sm text-emerald-400">
-                      ✓ Schedule saved. Check it on the Calendar page — a
-                      titrated schedule shows the dose changing over time.
+                    <p className="text-sm text-emerald-400 flex items-start gap-1.5">
+                      <Icon name="check" className="w-4 h-4 mt-0.5 shrink-0" />
+                      <span>
+                        Schedule saved. Check it on the Calendar page — a
+                        titrated schedule shows the dose changing over time.
+                      </span>
                     </p>
                   )}
                   {saveError && (
@@ -1254,8 +1267,9 @@ export default function PlannerPage() {
                       </button>
                     </div>
                     {draftSaved && (
-                      <p className="text-sm text-emerald-400">
-                        ✓ Draft saved — see it in "Your drafts" below.
+                      <p className="text-sm text-emerald-400 flex items-center gap-1.5">
+                        <Icon name="check" className="w-3.5 h-3.5 shrink-0" />
+                        Draft saved — see it in "Your drafts" below.
                       </p>
                     )}
                     {draftError && (
@@ -1441,8 +1455,10 @@ export default function PlannerPage() {
 function Stat({ label, value, sub }) {
   return (
     <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-      <p className="text-xs text-slate-400">{label}</p>
-      <p className="text-xl font-bold text-white mt-0.5">{value}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+        {label}
+      </p>
+      <p className="text-xl font-semibold text-white mt-1">{value}</p>
       {sub && <p className="text-xs text-slate-500 mt-0.5">{sub}</p>}
     </div>
   );

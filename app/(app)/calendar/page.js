@@ -1,18 +1,20 @@
 "use client";
 
 // ============================================================
-// CALENDAR (v4)  —  goes in:  app/(app)/calendar/page.js
-// (FULL REPLACEMENT of v3.)
+// CALENDAR (v5 — reskinned)  —  goes in:  app/(app)/calendar/page.js
+// (FULL REPLACEMENT of v4.)
 //
-// Day 22 · Chunk A: ONE behavioral change — scheduled-dose
-// chips and the day-detail panel now show the dose that applies
-// on THAT date (via doseOnDate), so a titrated schedule shows
-// e.g. "RT · 0.5mg" in June and "RT · 1mg" in July. Flat
-// schedules are unaffected (doseOnDate returns their flat dose).
+// Behavior is IDENTICAL to v4. The only changes are visual:
+//   • the hardcoded inline colors (grid line, today ring, blank
+//     cell, scheduled/logged chips) are retuned to the central
+//     palette in globals.css — they're inline hex, so they don't
+//     pick the palette up automatically and are set by hand here.
+//   • the ◀ ▶ month arrows and the ✉️ email toggle became
+//     cohesive line icons.
 //
-// Layout is unchanged from v3 — all layout-critical styles are
-// INLINE on purpose (see the note that was in v3). Do NOT
-// convert them to Tailwind classes.
+// As in v4, all layout-critical styles are INLINE on purpose so a
+// stale Tailwind build can't break the grid. Do NOT convert them
+// to Tailwind classes.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -28,6 +30,32 @@ import {
   doseOnDate,
 } from "../../lib/schedule-helpers";
 
+// ---------------- icons (cohesive line set, replaces emoji) ----------------
+function Icon({ name, className = "w-4 h-4" }) {
+  const stroke = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.7,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+  };
+  const paths = {
+    chevronLeft: <path d="M15 6l-6 6 6 6" />,
+    chevronRight: <path d="M9 6l6 6-6 6" />,
+    mail: (
+      <>
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <path d="m4 7 8 6 8-6" />
+      </>
+    ),
+  };
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...stroke} aria-hidden="true">
+      {paths[name]}
+    </svg>
+  );
+}
+
 // 1 = week starts Monday · 0 = week starts Sunday
 const WEEK_STARTS_ON = 1;
 
@@ -37,9 +65,10 @@ const HEADER_LABELS = [0, 1, 2, 3, 4, 5, 6].map(
 );
 
 // ---- inline style constants (Tailwind-independent) ----
-const GRID_LINE_COLOR = "#334155"; // slate-700 — the hairline ruling
+// Colors retuned to the central palette (globals.css).
+const GRID_LINE_COLOR = "#2A3431"; // slate-700 — the hairline ruling
 const CELL_MIN_HEIGHT = "clamp(64px, 11vw, 96px)"; // shorter boxes on phones
-const TODAY_RING = "inset 0 0 0 1px #10b981"; // emerald-500
+const TODAY_RING = "inset 0 0 0 1px #1FB089"; // emerald-500
 
 const gridStyle = {
   display: "grid",
@@ -59,7 +88,7 @@ const dayCellStyle = {
 
 const blankCellStyle = {
   minHeight: CELL_MIN_HEIGHT,
-  backgroundColor: "rgba(15, 23, 42, 0.55)", // dimmed slate-900
+  backgroundColor: "rgba(19, 26, 24, 0.55)", // dimmed slate-900
 };
 
 function chipStyle(kind) {
@@ -78,16 +107,16 @@ function chipStyle(kind) {
   if (kind === "sched") {
     return {
       ...base,
-      backgroundColor: "rgba(16, 185, 129, 0.12)", // emerald-500 tint
-      borderColor: "rgba(16, 185, 129, 0.25)",
-      color: "#6ee7b7", // emerald-300
+      backgroundColor: "rgba(31, 176, 137, 0.12)", // emerald-500 tint
+      borderColor: "rgba(31, 176, 137, 0.25)",
+      color: "#6FD9BF", // light emerald
     };
   }
   return {
     ...base,
-    backgroundColor: "rgba(14, 165, 233, 0.12)", // sky-500 tint
-    borderColor: "rgba(14, 165, 233, 0.25)",
-    color: "#7dd3fc", // sky-300
+    backgroundColor: "rgba(79, 182, 230, 0.12)", // calm sky tint
+    borderColor: "rgba(79, 182, 230, 0.25)",
+    color: "#8FCDEE", // light sky
   };
 }
 
@@ -301,10 +330,12 @@ export default function CalendarPage() {
   }
 
   return (
-    <div className="p-8 max-w-6xl space-y-6">
+    <div className="p-6 md:p-8 max-w-6xl space-y-6">
       {/* header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Calendar</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-white">
+          Calendar
+        </h1>
         <p className="text-slate-400 mt-1">
           Your saved schedules on a month view — scheduled days vs. what you
           actually logged.
@@ -321,9 +352,10 @@ export default function CalendarPage() {
               <button
                 type="button"
                 onClick={() => changeMonth(-1)}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 text-sm hover:bg-slate-700"
+                aria-label="Previous month"
+                className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 text-sm hover:bg-slate-700 inline-flex items-center"
               >
-                ◀
+                <Icon name="chevronLeft" className="w-4 h-4" />
               </button>
               <button
                 type="button"
@@ -335,9 +367,10 @@ export default function CalendarPage() {
               <button
                 type="button"
                 onClick={() => changeMonth(1)}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 text-sm hover:bg-slate-700"
+                aria-label="Next month"
+                className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 text-sm hover:bg-slate-700 inline-flex items-center"
               >
-                ▶
+                <Icon name="chevronRight" className="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -498,7 +531,10 @@ export default function CalendarPage() {
                 {selectedLogged.length > 0 && (
                   <div>
                     <p className="text-xs text-slate-400 mb-2 flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+                      <span
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{ backgroundColor: "#4FB6E6" }}
+                      />
                       Logged
                     </p>
                     <ul className="space-y-2">
@@ -594,11 +630,12 @@ export default function CalendarPage() {
                           onClick={() => handleToggleEmail(schedule)}
                           className={
                             schedule.email_reminders
-                              ? "text-xs px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20"
-                              : "text-xs px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:bg-slate-700"
+                              ? "text-xs px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 inline-flex items-center gap-1.5"
+                              : "text-xs px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:bg-slate-700 inline-flex items-center gap-1.5"
                           }
                         >
-                          ✉️ Email {schedule.email_reminders ? "on" : "off"}
+                          <Icon name="mail" className="w-3.5 h-3.5" />
+                          Email {schedule.email_reminders ? "on" : "off"}
                         </button>
                         <button
                           type="button"
@@ -616,7 +653,7 @@ export default function CalendarPage() {
 
             <p className="text-xs text-slate-500 mt-4">
               Pausing hides a schedule from the calendar and stops its emails —
-              nothing is deleted. The ✉️ toggle controls email reminders.
+              nothing is deleted. The email toggle controls email reminders.
             </p>
           </div>
         </div>

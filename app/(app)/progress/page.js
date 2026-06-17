@@ -1,26 +1,28 @@
 "use client";
 
 // ============================================================
-// PROGRESS PAGE  —  goes in:  app/(app)/progress/page.js
+// PROGRESS PAGE (reskinned)  —  goes in:  app/(app)/progress/page.js
 //
-// Day 16 — Progress page v2 (the one you asked for twice 📷):
+// Day 16 — Progress page v2:
 //
 //   1. PHOTO MARKERS ON THE WEIGHT CHART: amber dashed lines
-//      mark every day you took a progress photo, with a 📷
+//      mark every day you took a progress photo, with a camera
 //      toggle next to the range buttons to show/hide them.
 //      Under the hood the chart's bottom axis upgraded from
 //      evenly-spaced labels to a TRUE TIME AXIS — entries now
 //      sit at their real dates, so a 3-week gap looks like a
 //      3-week gap and photo markers land exactly where they
 //      belong.
-//   2. COMPARE PHOTOS: new drop-down card under the photo
-//      timeline — pick any Before and After, see them side by
-//      side with dates, captions, the nearest logged weight to
-//      each, and the change between them ("↓ 14.2 lbs over 62
-//      days").
+//   2. COMPARE PHOTOS: drop-down card under the photo timeline —
+//      pick any Before and After, see them side by side with
+//      dates, captions, the nearest logged weight to each, and
+//      the change between them.
 //
-// Everything else — weight logging, measurements, photo
-// uploads — is untouched.
+// RESKIN: visuals only. Recharts colors are hardcoded hex (they
+// can't read the central palette), so they were retuned by hand
+// here; the red/amber/emerald meaning is unchanged. Emoji became
+// line icons, the summary cards use the metric style, and the
+// emerald-filled buttons use dark text. No logic changed.
 // ============================================================
 
 import { useState, useEffect, useRef } from "react";
@@ -36,6 +38,48 @@ import {
   Tooltip,
   ReferenceLine,
 } from "recharts";
+
+// ---------------- icons (cohesive line set, replaces emoji) ----------------
+function Icon({ name, className = "w-4 h-4" }) {
+  const stroke = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.7,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+  };
+  const paths = {
+    scale: (
+      <>
+        <path d="M12 4v16" />
+        <path d="M5 7h14" />
+        <path d="M9 20h6" />
+        <path d="M5 7v5M3 12a2 2 0 0 0 4 0" />
+        <path d="M19 7v5M17 12a2 2 0 0 0 4 0" />
+      </>
+    ),
+    mail: (
+      <>
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <path d="m4 7 8 6 8-6" />
+      </>
+    ),
+    camera: (
+      <>
+        <path d="M3 9a1 1 0 0 1 1-1h2.5l1.2-1.6a1 1 0 0 1 .8-.4h3a1 1 0 0 1 .8.4L14.5 8H20a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
+        <circle cx="12" cy="13" r="3" />
+      </>
+    ),
+    chevronDown: <path d="M6 9l6 6 6-6" />,
+    chevronRight: <path d="M9 6l6 6-6 6" />,
+    close: <path d="M18 6 6 18M6 6l12 12" />,
+  };
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...stroke} aria-hidden="true">
+      {paths[name]}
+    </svg>
+  );
+}
 
 const UNITS = ["lbs", "kg", "st"];
 const MEASUREMENT_UNITS = ["in", "cm"];
@@ -216,7 +260,7 @@ export default function ProgressPage() {
   const [showPhotos, setShowPhotos] = useState(false);
 
   // ----- Day 16: photo markers + compare -----
-  const [showPhotoMarkers, setShowPhotoMarkers] = useState(true); // 📷 on the chart
+  const [showPhotoMarkers, setShowPhotoMarkers] = useState(true); // camera toggle on the chart
   const [showCompare, setShowCompare] = useState(false); // compare card open?
   const [compareBeforeId, setCompareBeforeId] = useState(""); // "" = default (oldest)
   const [compareAfterId, setCompareAfterId] = useState(""); // "" = default (newest)
@@ -851,10 +895,10 @@ export default function ProgressPage() {
   return (
     // If this page looks "double padded" compared to your dashboard,
     // your layout.js already adds padding — change p-8 below to p-0.
-    <div className="p-8 max-w-6xl space-y-6">
+    <div className="p-6 md:p-8 max-w-6xl space-y-6">
       {/* ---------- header ---------- */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Progress</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-white">Progress</h1>
         <p className="text-slate-400 mt-1">
           Log your weight and watch the trend over time.
         </p>
@@ -866,8 +910,9 @@ export default function ProgressPage() {
           weighinOverdue ? "border-amber-500/40" : "border-slate-800"
         }`}
       >
-        <h2 className="text-lg font-semibold text-white">
-          ⚖️ Weekly weigh-in
+        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+          <Icon name="scale" className="w-5 h-5" />
+          Weekly weigh-in
         </h2>
         <p
           className={`text-sm mt-1 ${
@@ -884,8 +929,9 @@ export default function ProgressPage() {
             onChange={handleToggleWeeklyEmail}
             className="w-4 h-4 accent-emerald-500"
           />
-          <span className="text-sm text-slate-300">
-            📧 Email me a weekly weigh-in reminder
+          <span className="text-sm text-slate-300 flex items-center gap-1.5">
+            <Icon name="mail" className="w-4 h-4" />
+            Email me a weekly weigh-in reminder
           </span>
         </label>
       </div>
@@ -894,28 +940,34 @@ export default function ProgressPage() {
       {newest && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-            <p className="text-sm text-slate-400">Current weight</p>
-            <p className="text-2xl font-bold text-white mt-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Current weight
+            </p>
+            <p className="text-[26px] leading-none font-semibold text-white mt-3">
               {parseFloat(newest.weight).toFixed(1)} {newest.unit}
             </p>
-            <p className="text-sm text-slate-500 mt-1">
+            <p className="text-sm text-slate-500 mt-2">
               {formatDate(newest.logged_at)}
             </p>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-            <p className="text-sm text-slate-400">Starting weight</p>
-            <p className="text-2xl font-bold text-white mt-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Starting weight
+            </p>
+            <p className="text-[26px] leading-none font-semibold text-white mt-3">
               {parseFloat(oldest.weight).toFixed(1)} {oldest.unit}
             </p>
-            <p className="text-sm text-slate-500 mt-1">
+            <p className="text-sm text-slate-500 mt-2">
               {formatDate(oldest.logged_at)}
             </p>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-            <p className="text-sm text-slate-400">Change</p>
-            <p className="text-2xl font-bold text-white mt-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Change
+            </p>
+            <p className="text-[26px] leading-none font-semibold text-white mt-3">
               {totalChange === null
                 ? "—"
                 : totalChange <= -0.05
@@ -924,7 +976,7 @@ export default function ProgressPage() {
                 ? `↑ ${totalChange.toFixed(1)} ${newest.unit}`
                 : `0.0 ${newest.unit}`}
             </p>
-            <p className="text-sm text-slate-500 mt-1">since first entry</p>
+            <p className="text-sm text-slate-500 mt-2">since first entry</p>
           </div>
         </div>
       )}
@@ -946,7 +998,7 @@ export default function ProgressPage() {
                   onClick={() => setRange(rangeOption.key)}
                   className={
                     rangeOption.key === range
-                      ? "px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-sm font-semibold"
+                      ? "px-3 py-1.5 rounded-lg bg-emerald-500 text-emerald-950 text-sm font-semibold"
                       : "px-3 py-1.5 rounded-lg bg-slate-800 text-slate-400 text-sm hover:bg-slate-700"
                   }
                 >
@@ -961,11 +1013,12 @@ export default function ProgressPage() {
                   title="Show photo days on the chart"
                   className={
                     showPhotoMarkers
-                      ? "px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-300 text-sm font-semibold"
-                      : "px-3 py-1.5 rounded-lg bg-slate-800 text-slate-400 text-sm hover:bg-slate-700"
+                      ? "px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-300 text-sm font-semibold inline-flex items-center gap-1.5"
+                      : "px-3 py-1.5 rounded-lg bg-slate-800 text-slate-400 text-sm hover:bg-slate-700 inline-flex items-center gap-1.5"
                   }
                 >
-                  📷 Photos
+                  <Icon name="camera" className="w-4 h-4" />
+                  Photos
                 </button>
               )}
             </div>
@@ -982,59 +1035,54 @@ export default function ProgressPage() {
                   data={chartData}
                   margin={{ top: 20, right: 10, left: 0, bottom: 5 }}
                 >
-                  <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" />
+                  <CartesianGrid stroke="#1F2926" strokeDasharray="3 3" />
                   <XAxis
                     dataKey="ts"
                     type="number"
                     scale="time"
                     domain={[domainStart, domainEnd]}
                     tickFormatter={(ts) => formatShortDate(ts)}
-                    tick={{ fill: "#94a3b8", fontSize: 12 }}
+                    tick={{ fill: "#8A9693", fontSize: 12 }}
                     tickLine={false}
-                    axisLine={{ stroke: "#334155" }}
+                    axisLine={{ stroke: "#2A3431" }}
                     minTickGap={40}
                   />
                   <YAxis
                     domain={["auto", "auto"]}
-                    tick={{ fill: "#94a3b8", fontSize: 12 }}
+                    tick={{ fill: "#8A9693", fontSize: 12 }}
                     tickLine={false}
-                    axisLine={{ stroke: "#334155" }}
+                    axisLine={{ stroke: "#2A3431" }}
                     width={50}
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "#0f172a",
-                      border: "1px solid #334155",
+                      backgroundColor: "#131A18",
+                      border: "1px solid #2A3431",
                       borderRadius: "8px",
                     }}
-                    labelStyle={{ color: "#94a3b8" }}
-                    itemStyle={{ color: "#34d399" }}
+                    labelStyle={{ color: "#8A9693" }}
+                    itemStyle={{ color: "#4FD6B4" }}
                     labelFormatter={(ts) => formatDate(ts)}
                     formatter={(value) => [`${value} ${chartUnit}`, "Weight"]}
                   />
 
-                  {/* 📷 a dashed amber line on every photo day */}
+                  {/* a dashed amber line on every photo day */}
                   {photoMarkers.map((photo) => (
                     <ReferenceLine
                       key={photo.id}
                       x={new Date(photo.taken_at).getTime()}
-                      stroke="#f59e0b"
+                      stroke="#E0A23A"
                       strokeDasharray="4 4"
                       strokeOpacity={0.7}
-                      label={{
-                        value: "📷",
-                        position: "top",
-                        fontSize: 13,
-                      }}
                     />
                   ))}
 
                   <Line
                     type="monotone"
                     dataKey="weight"
-                    stroke="#10b981"
+                    stroke="#1FB089"
                     strokeWidth={2}
-                    dot={{ r: 3, fill: "#10b981", strokeWidth: 0 }}
+                    dot={{ r: 3, fill: "#1FB089", strokeWidth: 0 }}
                     activeDot={{ r: 5 }}
                   />
                 </LineChart>
@@ -1043,8 +1091,9 @@ export default function ProgressPage() {
           )}
 
           {showPhotoMarkers && photoMarkers.length > 0 && (
-            <p className="text-sm text-slate-500 mt-3">
-              📷 Dashed lines mark days you took a progress photo.
+            <p className="text-sm text-slate-500 mt-3 flex items-center gap-1.5">
+              <Icon name="camera" className="w-3.5 h-3.5" />
+              Dashed lines mark days you took a progress photo.
             </p>
           )}
 
@@ -1090,7 +1139,7 @@ export default function ProgressPage() {
                   onClick={() => setUnit(unitOption)}
                   className={
                     unitOption === unit
-                      ? "px-4 py-2 rounded-lg bg-emerald-500 text-white font-semibold"
+                      ? "px-4 py-2 rounded-lg bg-emerald-500 text-emerald-950 font-semibold"
                       : "px-4 py-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700"
                   }
                 >
@@ -1163,7 +1212,7 @@ export default function ProgressPage() {
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className="mt-5 w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-8 py-3 rounded-lg disabled:opacity-50"
+              className="mt-5 w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-emerald-950 font-semibold px-8 py-3 rounded-lg disabled:opacity-50"
             >
               {saving ? "Saving..." : "Save entry"}
             </button>
@@ -1184,7 +1233,7 @@ export default function ProgressPage() {
                 </span>
               </h2>
               <span className="text-slate-400">
-                {showWeightHistory ? "▾" : "▸"}
+                <Icon name={showWeightHistory ? "chevronDown" : "chevronRight"} className="w-4 h-4" />
               </span>
             </button>
 
@@ -1246,10 +1295,10 @@ export default function ProgressPage() {
                             <button
                               type="button"
                               onClick={() => handleDelete(log.id)}
-                              className="text-slate-500 hover:text-red-400 text-sm"
+                              className="text-slate-500 hover:text-red-400"
                               title="Delete entry"
                             >
-                              ✕
+                              <Icon name="close" className="w-4 h-4" />
                             </button>
                           </div>
                         </li>
@@ -1281,7 +1330,7 @@ export default function ProgressPage() {
                 </p>
               </div>
               <span className="text-slate-400">
-                {showMeasurementsForm ? "▾" : "▸"}
+                <Icon name={showMeasurementsForm ? "chevronDown" : "chevronRight"} className="w-4 h-4" />
               </span>
             </button>
 
@@ -1303,11 +1352,10 @@ export default function ProgressPage() {
                 <button
                   type="button"
                   onClick={() => setShowMeasureGuide((previous) => !previous)}
-                  className="text-sm text-emerald-400 hover:text-emerald-300"
+                  className="text-sm text-emerald-400 hover:text-emerald-300 inline-flex items-center gap-1.5"
                 >
-                  {showMeasureGuide
-                    ? "▾ How do I measure?"
-                    : "▸ How do I measure?"}
+                  <Icon name={showMeasureGuide ? "chevronDown" : "chevronRight"} className="w-3.5 h-3.5" />
+                  How do I measure?
                 </button>
 
                 {showMeasureGuide && (
@@ -1338,7 +1386,7 @@ export default function ProgressPage() {
                       onClick={() => setMUnit(unitOption)}
                       className={
                         unitOption === mUnit
-                          ? "px-4 py-2 rounded-lg bg-emerald-500 text-white font-semibold"
+                          ? "px-4 py-2 rounded-lg bg-emerald-500 text-emerald-950 font-semibold"
                           : "px-4 py-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700"
                       }
                     >
@@ -1401,7 +1449,7 @@ export default function ProgressPage() {
                   type="button"
                   onClick={handleSaveMeasurements}
                   disabled={mSaving}
-                  className="mt-5 w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-8 py-3 rounded-lg disabled:opacity-50"
+                  className="mt-5 w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-emerald-950 font-semibold px-8 py-3 rounded-lg disabled:opacity-50"
                 >
                   {mSaving ? "Saving..." : "Save measurements"}
                 </button>
@@ -1426,7 +1474,7 @@ export default function ProgressPage() {
                 </span>
               </h2>
               <span className="text-slate-400">
-                {showMeasurementHistory ? "▾" : "▸"}
+                <Icon name={showMeasurementHistory ? "chevronDown" : "chevronRight"} className="w-4 h-4" />
               </span>
             </button>
 
@@ -1488,10 +1536,10 @@ export default function ProgressPage() {
                           <button
                             type="button"
                             onClick={() => handleDeleteMeasurement(entry.id)}
-                            className="text-slate-500 hover:text-red-400 text-sm"
+                            className="text-slate-500 hover:text-red-400"
                             title="Delete entry"
                           >
-                            ✕
+                            <Icon name="close" className="w-4 h-4" />
                           </button>
                         </div>
                       </li>
@@ -1522,7 +1570,9 @@ export default function ProgressPage() {
                   see these
                 </p>
               </div>
-              <span className="text-slate-400">{showPhotos ? "▾" : "▸"}</span>
+              <span className="text-slate-400">
+                <Icon name={showPhotos ? "chevronDown" : "chevronRight"} className="w-4 h-4" />
+              </span>
             </button>
 
             {/* banners sit outside the fold so errors are never hidden */}
@@ -1599,7 +1649,7 @@ export default function ProgressPage() {
                   type="button"
                   onClick={handleUploadPhoto}
                   disabled={uploading}
-                  className="mt-5 w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-8 py-3 rounded-lg disabled:opacity-50"
+                  className="mt-5 w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-emerald-950 font-semibold px-8 py-3 rounded-lg disabled:opacity-50"
                 >
                   {uploading ? "Uploading..." : "Upload photo"}
                 </button>
@@ -1644,10 +1694,10 @@ export default function ProgressPage() {
                         <button
                           type="button"
                           onClick={() => handleDeletePhoto(photo)}
-                          className="absolute top-2 right-2 bg-slate-950/70 hover:bg-red-500/80 text-white rounded-lg px-2 py-1 text-sm"
+                          className="absolute top-2 right-2 bg-slate-950/70 hover:bg-red-500/80 text-white rounded-lg px-2 py-1 inline-flex items-center justify-center"
                           title="Delete photo"
                         >
-                          ✕
+                          <Icon name="close" className="w-4 h-4" />
                         </button>
                       </div>
                     ))}
@@ -1674,7 +1724,7 @@ export default function ProgressPage() {
                 </p>
               </div>
               <span className="text-slate-400">
-                {showCompare ? "▾" : "▸"}
+                <Icon name={showCompare ? "chevronDown" : "chevronRight"} className="w-4 h-4" />
               </span>
             </button>
 
@@ -1776,8 +1826,8 @@ export default function ProgressPage() {
                               </p>
                             )}
                             {side.nearest && (
-                              <p className="text-sm text-slate-400 mt-0.5">
-                                ⚖️{" "}
+                              <p className="text-sm text-slate-400 mt-0.5 flex items-center gap-1.5">
+                                <Icon name="scale" className="w-3.5 h-3.5" />
                                 {parseFloat(
                                   side.nearest.log.weight
                                 ).toFixed(1)}{" "}
@@ -1827,9 +1877,10 @@ export default function ProgressPage() {
                         </p>
                       )}
 
-                    <p className="text-xs text-slate-500 mt-3">
-                      ⚖️ shows the weigh-in logged closest to each photo's
-                      date.
+                    <p className="text-xs text-slate-500 mt-3 flex items-center gap-1.5">
+                      <Icon name="scale" className="w-3.5 h-3.5" />
+                      Weight shown is the weigh-in logged closest to each
+                      photo's date.
                     </p>
                   </>
                 )}
