@@ -77,7 +77,7 @@ export default function Signup() {
             type="text"
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
-            placeholder="Mohammad Dweik"
+            placeholder="Yourname"
             className="w-full bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-700 focus:outline-none focus:border-emerald-500"
           />
         </div>
