@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase";
 
 export default function Signup() {
+  const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -27,7 +29,7 @@ export default function Signup() {
       return;
     }
 
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -37,10 +39,21 @@ export default function Signup() {
 
     if (error) {
       setError(error.message);
-    } else {
-      setSuccess(true);
+      setLoading(false);
+      return;
     }
 
+    // If email confirmation is OFF, signUp returns an active session and the
+    // user is already logged in -> send them straight into the app.
+    // If confirmation is ON, there's no session yet -> show the "check your
+    // email" screen so they know to confirm first. This handles both cases
+    // automatically, so it keeps working if you enable confirmation later.
+    if (data.session) {
+      router.push("/dashboard");
+      return;
+    }
+
+    setSuccess(true);
     setLoading(false);
   }
 
