@@ -27,10 +27,11 @@
 // Needs one SQL migration first (see the chat) to add the
 // timezone column. Nothing else on the app depends on this page.
 // ============================================================
-
+import ChangePassword from "../../components/ChangePassword";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
+
 
 // A curated list of common timezones (IANA names). Not every zone
 // on earth — just the ones our users are realistically in, grouped
@@ -486,6 +487,9 @@ export default function SettingsPage() {
           </button>
         </div>
       </div>
+
+      {/* ---------- change password ---------- */}
+      <ChangePassword />
 
       {/* ---------- timezone ---------- */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
