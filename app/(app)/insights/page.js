@@ -19,6 +19,11 @@
 // We only count days up to TODAY — future scheduled doses haven't
 // happened yet, so they're neither taken nor missed.
 //
+// Date handling note: dose dates are read straight from the database
+// text (first 10 chars = the day), NOT parsed with new Date(). This
+// keeps adherence correct on iOS Safari, which mis-parses the
+// space-separated timestamps Postgres returns.
+//
 // Scope note: this view is the same for everyone right now. The
 // free/premium split (basic % free, full breakdown premium) gets
 // wired in later with Stripe. Nothing here is gated yet.
@@ -74,15 +79,17 @@ function dateKeyFromDate(d) {
   return `${year}-${month}-${day}`;
 }
 
-// Same, but for any value from the database. Date-only strings
-// ("2026-06-10") get a noon time so they don't slip a day across
-// timezones; timestamps are used as-is.
 function dateKeyOf(value) {
-  const safe =
-    typeof value === "string" && value.length === 10
-      ? `${value}T12:00:00`
-      : value;
-  return dateKeyFromDate(new Date(safe));
+  // Postgres returns timestamps like "2026-06-25 15:56:00" (note the
+  // space, not a "T"). Browsers disagree on how to parse that format —
+  // iOS Safari returns "Invalid Date" — so instead of building a Date
+  // and risking a wrong or invalid result, we read the calendar date
+  // straight from the text. The first 10 characters are always
+  // "YYYY-MM-DD", which is exactly the day the dose was logged.
+  if (typeof value === "string" && value.length >= 10) {
+    return value.slice(0, 10);
+  }
+  return dateKeyFromDate(new Date(value));
 }
 
 // "2026-06-01" -> a Date at local noon (timezone-safe).
