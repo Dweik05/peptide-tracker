@@ -1,26 +1,28 @@
 "use client";
 
 // ============================================================
-// INSIGHTS (Day 34 — adherence + trends)
+// INSIGHTS (Day 35 — adherence + trends + side effects)
 //   goes in:  app/(app)/insights/page.js
-//   (FULL REPLACEMENT of the Day 33 version.)
+//   (FULL REPLACEMENT of the Day 34 version.)
 //
-// Day 33 gave us ADHERENCE (schedule vs logged doses). Day 34 adds
-// TRENDS on top of the same page:
-//   • Weight trend  — change from your first to your latest weigh-in,
-//     the period and weekly rate, plus a small sparkline. Needs at
-//     least two weigh-ins; with fewer it shows a friendly prompt.
-//   • Body measurements — first → latest change for each measurement
-//     you track (waist, chest, etc.). Hidden until you have two.
+// This completes Insights engine v1 — three insight types on one page:
+//   • ADHERENCE (Day 33) — schedule vs logged doses.
+//   • TRENDS (Day 34) — weight + body-measurement movement.
+//   • SIDE EFFECTS (Day 35) — for each symptom you log: how its
+//     severity is trending over time, and which protocols were
+//     running when it first appeared.
 //
-// Everything is framed as an OBSERVATION, not a claim. We never say a
-// peptide "worked" — weight can move for many reasons the app can't
-// see. We also don't colour weight up/down as good/bad, because the
-// right direction depends on your own goal.
+// Honest-by-design note on side effects: we deliberately do NOT do
+// naive "symptom within N days of a dose" correlation. Daily protocols
+// (e.g. GHK-CU, MT2) would trivially "correlate" with every symptom,
+// which is misleading. Instead we report the severity TREND (not
+// confounded by dose frequency) and ONSET CONTEXT (which protocols
+// were active when a symptom first appeared) — framed as observation,
+// with an explicit "overlap isn't cause" caveat.
 //
-// Date handling: dose/weigh-in dates are read straight from the
-// database text (first 10 chars = the day), NOT parsed with new Date(),
-// so adherence and trends stay correct on iOS Safari.
+// Date handling: dates are read straight from the database text (first
+// 10 chars = the day), NOT parsed with new Date(), so everything stays
+// correct on iOS Safari.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -58,6 +60,7 @@ function Icon({ name, className = "w-4 h-4" }) {
         <path d="M9.5 10.5l1.5 1.5M12.5 7.5l1.5 1.5M6.5 13.5l1.5 1.5" />
       </>
     ),
+    pulse: <path d="M3 12h4l2-5 4 10 2-5h6" />,
     check: <path d="M20 6 9 17l-5-5" />,
     alertTriangle: (
       <>
@@ -126,10 +129,8 @@ function dateKeyFromDate(d) {
 
 function dateKeyOf(value) {
   // Postgres returns timestamps like "2026-06-25 15:56:00" (note the
-  // space, not a "T"). Browsers disagree on how to parse that format —
-  // iOS Safari returns "Invalid Date" — so we read the calendar date
-  // straight from the text. The first 10 characters are always
-  // "YYYY-MM-DD", which is exactly the day it was logged.
+  // space, not a "T"). iOS Safari mis-parses that, so we read the
+  // calendar date straight from the text — first 10 chars = the day.
   if (typeof value === "string" && value.length >= 10) {
     return value.slice(0, 10);
   }
@@ -149,7 +150,7 @@ function parseDateOnly(str) {
   return new Date(`${str}T12:00:00`);
 }
 
-// Pretty date like "Jun 8" for the missed list.
+// Pretty date like "Jun 8".
 function shortDate(d) {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
@@ -174,7 +175,12 @@ function fromInches(value, unit) {
   return unit === "cm" ? value * 2.54 : value;
 }
 
-// arrow + neutral wording for a change (no good/bad colour)
+function mean(nums) {
+  if (!nums || nums.length === 0) return 0;
+  return nums.reduce((a, b) => a + b, 0) / nums.length;
+}
+
+// arrow for a change (no good/bad colour)
 function arrowFor(change) {
   if (change <= -0.05) return "↓";
   if (change >= 0.05) return "↑";
@@ -189,6 +195,7 @@ export default function Insights() {
   const [schedules, setSchedules] = useState([]);
   const [weights, setWeights] = useState([]); // oldest first
   const [measurements, setMeasurements] = useState([]); // oldest first
+  const [sideEffects, setSideEffects] = useState([]); // oldest first
 
   useEffect(() => {
     async function init() {
@@ -206,6 +213,7 @@ export default function Insights() {
         fetchSchedules(session.user.id),
         fetchWeights(session.user.id),
         fetchMeasurements(session.user.id),
+        fetchSideEffects(session.user.id),
       ]);
 
       setLoading(false);
@@ -214,8 +222,6 @@ export default function Insights() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // All dose logs for this user. Schedules can run longer than 90 days,
-  // so unlike the dashboard we don't date-limit here.
   async function fetchDoses(uid) {
     const { data } = await supabase
       .from("dose_logs")
@@ -249,6 +255,15 @@ export default function Insights() {
       .eq("user_id", uid)
       .order("logged_at", { ascending: true });
     setMeasurements(data || []);
+  }
+
+  async function fetchSideEffects(uid) {
+    const { data } = await supabase
+      .from("side_effect_logs")
+      .select("effect_name, severity, logged_at")
+      .eq("user_id", uid)
+      .order("logged_at", { ascending: true });
+    setSideEffects(data || []);
   }
 
   // ========== ADHERENCE (Day 33) ==========
@@ -348,7 +363,6 @@ export default function Insights() {
 
   // ========== TRENDS (Day 34) ==========
 
-  // ----- weight trend -----
   let weightTrend = null;
   if (weights.length >= 2) {
     const first = weights[0];
@@ -382,7 +396,6 @@ export default function Insights() {
     };
   }
 
-  // ----- body measurement trends -----
   const measureFields = [
     { key: "waist", label: "Waist" },
     { key: "hips", label: "Hips" },
@@ -412,6 +425,52 @@ export default function Insights() {
     }
   }
 
+  // ========== SIDE EFFECTS (Day 35) ==========
+
+  const effectGroups = {};
+  for (const e of sideEffects) {
+    const name = (e.effect_name || "").trim();
+    if (!name) continue;
+    if (!effectGroups[name]) effectGroups[name] = [];
+    effectGroups[name].push(e);
+  }
+
+  const effectSummaries = Object.keys(effectGroups).map((name) => {
+    const reports = effectGroups[name]; // ascending
+    const severities = reports.map((r) => Number(r.severity) || 0);
+    const count = reports.length;
+    const avgSeverity = mean(severities);
+    const firstDate = dateOf(reports[0].logged_at);
+    const lastDate = dateOf(reports[reports.length - 1].logged_at);
+
+    // severity trend: compare the earlier reports vs the later ones.
+    // (For an odd count the middle report is skipped.) Not confounded
+    // by how often a peptide is dosed.
+    let trend = null;
+    if (count >= 2) {
+      const firstHalf = severities.slice(0, Math.floor(count / 2));
+      const secondHalf = severities.slice(Math.ceil(count / 2));
+      const diff = mean(secondHalf) - mean(firstHalf);
+      trend = diff <= -0.5 ? "easing" : diff >= 0.5 ? "worsening" : "steady";
+    }
+
+    // protocols active on the day this symptom was FIRST logged —
+    // neutral timing context, not a causal claim.
+    const activeAtOnset = [];
+    for (const s of activeSchedules) {
+      const start = parseDateOnly(s.start_date);
+      const end = parseDateOnly(s.end_date);
+      if (start <= firstDate && firstDate <= end) {
+        const pn = (s.peptide_name || "").trim();
+        if (pn && !activeAtOnset.includes(pn)) activeAtOnset.push(pn);
+      }
+    }
+
+    return { name, count, avgSeverity, firstDate, lastDate, trend, activeAtOnset };
+  });
+
+  effectSummaries.sort((a, b) => b.lastDate - a.lastDate);
+
   // ---------- render ----------
 
   if (loading) {
@@ -437,7 +496,6 @@ export default function Insights() {
 
       {/* ========== ADHERENCE ========== */}
 
-      {/* no active schedules */}
       {!hasActive && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
           <h2 className="text-base font-semibold text-white flex items-center gap-2">
@@ -458,7 +516,6 @@ export default function Insights() {
         </div>
       )}
 
-      {/* schedules exist but nothing due yet */}
       {hasActive && !hasScored && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
           <h2 className="text-base font-semibold text-white flex items-center gap-2">
@@ -472,7 +529,6 @@ export default function Insights() {
         </div>
       )}
 
-      {/* the real adherence view */}
       {hasActive && hasScored && (
         <>
           <div className={`bg-slate-900 border rounded-xl p-6 ${headlineBorder}`}>
@@ -669,6 +725,73 @@ export default function Insights() {
           </ul>
         </div>
       )}
+
+      {/* ========== SIDE EFFECTS ========== */}
+
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <h2 className="text-base font-semibold text-white flex items-center gap-2">
+          <Icon name="pulse" className="w-[18px] h-[18px] text-slate-400" />
+          Side effects
+        </h2>
+
+        {effectSummaries.length === 0 && (
+          <p className="text-sm text-slate-500 mt-3">
+            No side effects logged yet. When you record symptoms on the{" "}
+            <Link
+              href="/side-effects"
+              className="text-emerald-400 hover:text-emerald-300"
+            >
+              Side Effects
+            </Link>{" "}
+            page, this is where you&apos;ll see how each one trends over time and
+            which protocols were running when it first appeared.
+          </p>
+        )}
+
+        {effectSummaries.length > 0 && (
+          <>
+            <ul className="space-y-4 mt-4">
+              {effectSummaries.map((e) => (
+                <li
+                  key={e.name}
+                  className="border-b border-slate-800 pb-4 last:border-0 last:pb-0"
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <p className="text-sm text-white font-medium">{e.name}</p>
+                    {e.trend && (
+                      <span className="text-xs text-slate-400 whitespace-nowrap">
+                        {e.trend === "easing"
+                          ? "↓ easing"
+                          : e.trend === "worsening"
+                          ? "↑ worsening"
+                          : "→ steady"}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {e.count} {e.count === 1 ? "report" : "reports"} · avg
+                    severity {e.avgSeverity.toFixed(1)} · last{" "}
+                    {shortDate(e.lastDate)}
+                  </p>
+                  {e.activeAtOnset.length > 0 && (
+                    <p className="text-xs text-slate-500 mt-1">
+                      Active when first logged:{" "}
+                      <span className="text-slate-400">
+                        {e.activeAtOnset.join(", ")}
+                      </span>
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-slate-500 mt-4">
+              These summarize what you&apos;ve logged. A protocol running when a
+              symptom appeared isn&apos;t proof it caused it — many things affect
+              how you feel.
+            </p>
+          </>
+        )}
+      </div>
     </div>
   );
 }
