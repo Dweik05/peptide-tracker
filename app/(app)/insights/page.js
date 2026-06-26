@@ -1,32 +1,26 @@
 "use client";
 
 // ============================================================
-// INSIGHTS (Day 33 — adherence)  —  goes in:  app/(app)/insights/page.js
+// INSIGHTS (Day 34 — adherence + trends)
+//   goes in:  app/(app)/insights/page.js
+//   (FULL REPLACEMENT of the Day 33 version.)
 //
-// This is the first piece of the Insights engine. It answers one
-// question from your own data: of the doses your active schedules
-// SAID should have happened by today, how many did you actually log?
+// Day 33 gave us ADHERENCE (schedule vs logged doses). Day 34 adds
+// TRENDS on top of the same page:
+//   • Weight trend  — change from your first to your latest weigh-in,
+//     the period and weekly rate, plus a small sparkline. Needs at
+//     least two weigh-ins; with fewer it shows a friendly prompt.
+//   • Body measurements — first → latest change for each measurement
+//     you track (waist, chest, etc.). Hidden until you have two.
 //
-// How it works (plain version):
-//   • Your schedules (the "reminders" table) are the PLAN. For each
-//     active schedule we walk day-by-day from its start date up to
-//     today and ask the shared isDoseDay() helper "was a dose due on
-//     this day?" Every "yes" is one scheduled dose.
-//   • Your dose_logs are WHAT ACTUALLY HAPPENED. For each scheduled
-//     day we check whether you logged that peptide on that day.
-//   • Adherence = doses logged ÷ doses that should have happened.
+// Everything is framed as an OBSERVATION, not a claim. We never say a
+// peptide "worked" — weight can move for many reasons the app can't
+// see. We also don't colour weight up/down as good/bad, because the
+// right direction depends on your own goal.
 //
-// We only count days up to TODAY — future scheduled doses haven't
-// happened yet, so they're neither taken nor missed.
-//
-// Date handling note: dose dates are read straight from the database
-// text (first 10 chars = the day), NOT parsed with new Date(). This
-// keeps adherence correct on iOS Safari, which mis-parses the
-// space-separated timestamps Postgres returns.
-//
-// Scope note: this view is the same for everyone right now. The
-// free/premium split (basic % free, full breakdown premium) gets
-// wired in later with Stripe. Nothing here is gated yet.
+// Date handling: dose/weigh-in dates are read straight from the
+// database text (first 10 chars = the day), NOT parsed with new Date(),
+// so adherence and trends stay correct on iOS Safari.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -52,6 +46,18 @@ function Icon({ name, className = "w-4 h-4" }) {
         <circle cx="12" cy="12" r="1" />
       </>
     ),
+    trend: (
+      <>
+        <path d="M3 3v18h18" />
+        <path d="M7 14l3-3 3 3 5-6" />
+      </>
+    ),
+    ruler: (
+      <>
+        <path d="M16 3 3 16l5 5L21 8z" />
+        <path d="M9.5 10.5l1.5 1.5M12.5 7.5l1.5 1.5M6.5 13.5l1.5 1.5" />
+      </>
+    ),
     check: <path d="M20 6 9 17l-5-5" />,
     alertTriangle: (
       <>
@@ -69,6 +75,45 @@ function Icon({ name, className = "w-4 h-4" }) {
   );
 }
 
+// ---------------- tiny hand-drawn sparkline (no chart library) ----------------
+function Sparkline({ values }) {
+  if (!values || values.length < 2) return null;
+  const width = 240;
+  const height = 48;
+  const pad = 4;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const stepX = (width - pad * 2) / (values.length - 1);
+
+  const coords = values.map((v, i) => {
+    const x = pad + i * stepX;
+    const y = pad + (height - pad * 2) * (1 - (v - min) / range);
+    return { x, y };
+  });
+
+  const line = coords.map((c) => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(" ");
+  const lastPoint = coords[coords.length - 1];
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="w-full max-w-[240px] h-12"
+      aria-hidden="true"
+    >
+      <polyline
+        points={line}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx={lastPoint.x} cy={lastPoint.y} r="2.5" fill="currentColor" />
+    </svg>
+  );
+}
+
 // ---------------- date helpers (local-timezone safe) ----------------
 
 // "YYYY-MM-DD" for a Date, in the browser's local timezone.
@@ -82,14 +127,21 @@ function dateKeyFromDate(d) {
 function dateKeyOf(value) {
   // Postgres returns timestamps like "2026-06-25 15:56:00" (note the
   // space, not a "T"). Browsers disagree on how to parse that format —
-  // iOS Safari returns "Invalid Date" — so instead of building a Date
-  // and risking a wrong or invalid result, we read the calendar date
+  // iOS Safari returns "Invalid Date" — so we read the calendar date
   // straight from the text. The first 10 characters are always
-  // "YYYY-MM-DD", which is exactly the day the dose was logged.
+  // "YYYY-MM-DD", which is exactly the day it was logged.
   if (typeof value === "string" && value.length >= 10) {
     return value.slice(0, 10);
   }
   return dateKeyFromDate(new Date(value));
+}
+
+// iOS-safe Date for the date portion of any timestamp (used for periods).
+function dateOf(value) {
+  if (typeof value === "string" && value.length >= 10) {
+    return new Date(`${value.slice(0, 10)}T12:00:00`);
+  }
+  return new Date(value);
 }
 
 // "2026-06-01" -> a Date at local noon (timezone-safe).
@@ -102,12 +154,41 @@ function shortDate(d) {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+// ----- weight unit conversion (lbs / kg / st), matching the dashboard -----
+function toLbs(value, unit) {
+  if (unit === "kg") return value * 2.20462;
+  if (unit === "st") return value * 14;
+  return value;
+}
+function fromLbs(value, unit) {
+  if (unit === "kg") return value / 2.20462;
+  if (unit === "st") return value / 14;
+  return value;
+}
+
+// ----- measurement unit conversion (in / cm) -----
+function toInches(value, unit) {
+  return unit === "cm" ? value / 2.54 : value;
+}
+function fromInches(value, unit) {
+  return unit === "cm" ? value * 2.54 : value;
+}
+
+// arrow + neutral wording for a change (no good/bad colour)
+function arrowFor(change) {
+  if (change <= -0.05) return "↓";
+  if (change >= 0.05) return "↑";
+  return "→";
+}
+
 export default function Insights() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [doses, setDoses] = useState([]);
   const [schedules, setSchedules] = useState([]);
+  const [weights, setWeights] = useState([]); // oldest first
+  const [measurements, setMeasurements] = useState([]); // oldest first
 
   useEffect(() => {
     async function init() {
@@ -123,6 +204,8 @@ export default function Insights() {
       await Promise.all([
         fetchDoses(session.user.id),
         fetchSchedules(session.user.id),
+        fetchWeights(session.user.id),
+        fetchMeasurements(session.user.id),
       ]);
 
       setLoading(false);
@@ -132,8 +215,7 @@ export default function Insights() {
   }, []);
 
   // All dose logs for this user. Schedules can run longer than 90 days,
-  // so unlike the dashboard we don't date-limit here — we need the full
-  // history to score every scheduled day fairly.
+  // so unlike the dashboard we don't date-limit here.
   async function fetchDoses(uid) {
     const { data } = await supabase
       .from("dose_logs")
@@ -151,9 +233,26 @@ export default function Insights() {
     setSchedules(data || []);
   }
 
-  // ---------- adherence computation ----------
+  async function fetchWeights(uid) {
+    const { data } = await supabase
+      .from("weight_logs")
+      .select("weight, unit, logged_at")
+      .eq("user_id", uid)
+      .order("logged_at", { ascending: true });
+    setWeights(data || []);
+  }
 
-  // peptide name -> Set of local date keys it was logged on
+  async function fetchMeasurements(uid) {
+    const { data } = await supabase
+      .from("body_measurements")
+      .select("waist, hips, chest, arms, thighs, unit, logged_at")
+      .eq("user_id", uid)
+      .order("logged_at", { ascending: true });
+    setMeasurements(data || []);
+  }
+
+  // ========== ADHERENCE (Day 33) ==========
+
   const loggedByPeptide = {};
   for (const d of doses) {
     const name = (d.peptide_name || "").trim();
@@ -191,8 +290,6 @@ export default function Insights() {
       12
     );
 
-    // The cursor <= end bound terminates the loop on its own; the guard
-    // is just belt-and-suspenders against a malformed date.
     let guard = 0;
     while (cursor <= end && guard < 3650) {
       guard++;
@@ -221,13 +318,10 @@ export default function Insights() {
 
   missedList.sort((a, b) => b.date - a.date);
   const recentMissed = missedList.slice(0, 5);
-
   const scoredSchedules = perSchedule.filter((r) => r.scheduled > 0);
-
   const overallPct =
     totalScheduled > 0 ? Math.round((totalTaken / totalScheduled) * 100) : null;
 
-  // colour helpers — full class strings so Tailwind keeps them
   function textClassFor(pct) {
     if (pct === null) return "text-white";
     if (pct >= 90) return "text-emerald-400";
@@ -249,6 +343,75 @@ export default function Insights() {
       ? "border-amber-500/40"
       : "border-red-500/40";
 
+  const hasActive = activeSchedules.length > 0;
+  const hasScored = totalScheduled > 0;
+
+  // ========== TRENDS (Day 34) ==========
+
+  // ----- weight trend -----
+  let weightTrend = null;
+  if (weights.length >= 2) {
+    const first = weights[0];
+    const last = weights[weights.length - 1];
+    const displayUnit = last.unit || "lbs";
+
+    const firstLbs = toLbs(parseFloat(first.weight), first.unit);
+    const lastLbs = toLbs(parseFloat(last.weight), last.unit);
+    const change = fromLbs(lastLbs - firstLbs, displayUnit);
+
+    const days = Math.max(
+      1,
+      Math.round((dateOf(last.logged_at) - dateOf(first.logged_at)) / 86400000)
+    );
+    const weeks = days / 7;
+    const ratePerWeek = weeks > 0 ? change / weeks : 0;
+
+    const series = weights.map((w) =>
+      fromLbs(toLbs(parseFloat(w.weight), w.unit), displayUnit)
+    );
+
+    weightTrend = {
+      displayUnit,
+      change,
+      firstValue: fromLbs(firstLbs, displayUnit),
+      lastValue: fromLbs(lastLbs, displayUnit),
+      days,
+      weeks,
+      ratePerWeek,
+      series,
+    };
+  }
+
+  // ----- body measurement trends -----
+  const measureFields = [
+    { key: "waist", label: "Waist" },
+    { key: "hips", label: "Hips" },
+    { key: "chest", label: "Chest" },
+    { key: "arms", label: "Arms" },
+    { key: "thighs", label: "Thighs" },
+  ];
+
+  const measureTrends = [];
+  for (const f of measureFields) {
+    const points = measurements.filter(
+      (m) => m[f.key] !== null && m[f.key] !== undefined && m[f.key] !== ""
+    );
+    if (points.length >= 2) {
+      const first = points[0];
+      const last = points[points.length - 1];
+      const displayUnit = last.unit || "in";
+      const firstIn = toInches(parseFloat(first[f.key]), first.unit);
+      const lastIn = toInches(parseFloat(last[f.key]), last.unit);
+      measureTrends.push({
+        label: f.label,
+        unit: displayUnit,
+        firstValue: fromInches(firstIn, displayUnit),
+        lastValue: fromInches(lastIn, displayUnit),
+        change: fromInches(lastIn - firstIn, displayUnit),
+      });
+    }
+  }
+
   // ---------- render ----------
 
   if (loading) {
@@ -258,9 +421,6 @@ export default function Insights() {
       </div>
     );
   }
-
-  const hasActive = activeSchedules.length > 0;
-  const hasScored = totalScheduled > 0;
 
   return (
     <div className="p-6 md:p-8 max-w-6xl space-y-6">
@@ -274,6 +434,8 @@ export default function Insights() {
           medical advice.
         </p>
       </div>
+
+      {/* ========== ADHERENCE ========== */}
 
       {/* no active schedules */}
       {!hasActive && (
@@ -310,10 +472,9 @@ export default function Insights() {
         </div>
       )}
 
-      {/* the real thing */}
+      {/* the real adherence view */}
       {hasActive && hasScored && (
         <>
-          {/* headline adherence card */}
           <div className={`bg-slate-900 border rounded-xl p-6 ${headlineBorder}`}>
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold text-white flex items-center gap-2">
@@ -356,7 +517,6 @@ export default function Insights() {
             )}
           </div>
 
-          {/* per-protocol breakdown */}
           {scoredSchedules.length > 0 && (
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
               <h2 className="text-base font-semibold text-white mb-4">
@@ -392,7 +552,6 @@ export default function Insights() {
             </div>
           )}
 
-          {/* recently missed */}
           {recentMissed.length > 0 && (
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
               <h2 className="text-base font-semibold text-white flex items-center gap-2 mb-4">
@@ -422,6 +581,93 @@ export default function Insights() {
             </div>
           )}
         </>
+      )}
+
+      {/* ========== TRENDS ========== */}
+
+      {/* weight trend */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <h2 className="text-base font-semibold text-white flex items-center gap-2">
+          <Icon name="trend" className="w-[18px] h-[18px] text-slate-400" />
+          Weight trend
+        </h2>
+
+        {weights.length === 0 && (
+          <p className="text-sm text-slate-500 mt-3">
+            No weigh-ins yet. Log your weight on the{" "}
+            <Link
+              href="/progress"
+              className="text-emerald-400 hover:text-emerald-300"
+            >
+              Progress
+            </Link>{" "}
+            page to start tracking how it moves.
+          </p>
+        )}
+
+        {weights.length === 1 && (
+          <p className="text-sm text-slate-500 mt-3">
+            You&apos;ve logged one weigh-in (
+            <span className="text-slate-300">
+              {parseFloat(weights[0].weight)} {weights[0].unit}
+            </span>
+            ). Log another and your weight trend will appear here — a single
+            point can&apos;t show a direction yet.
+          </p>
+        )}
+
+        {weightTrend && (
+          <>
+            <p className="text-[32px] leading-none font-semibold text-white mt-3 flex items-baseline gap-2">
+              <span>{arrowFor(weightTrend.change)}</span>
+              <span>{Math.abs(weightTrend.change).toFixed(1)}</span>
+              <span className="text-lg font-medium text-slate-400">
+                {weightTrend.displayUnit}
+              </span>
+            </p>
+            <p className="text-sm text-slate-400 mt-2">
+              {weightTrend.firstValue.toFixed(1)} →{" "}
+              {weightTrend.lastValue.toFixed(1)} {weightTrend.displayUnit} over{" "}
+              {weightTrend.days} {weightTrend.days === 1 ? "day" : "days"}
+              {weightTrend.weeks >= 1 && (
+                <>
+                  {" "}
+                  · ~{Math.abs(weightTrend.ratePerWeek).toFixed(1)}{" "}
+                  {weightTrend.displayUnit}/week
+                </>
+              )}
+            </p>
+            <div className="text-slate-300 mt-4">
+              <Sparkline values={weightTrend.series} />
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* body measurements */}
+      {measureTrends.length > 0 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+          <h2 className="text-base font-semibold text-white flex items-center gap-2 mb-4">
+            <Icon name="ruler" className="w-[18px] h-[18px] text-slate-400" />
+            Body measurements
+          </h2>
+          <ul className="space-y-3">
+            {measureTrends.map((m) => (
+              <li
+                key={m.label}
+                className="flex items-center justify-between gap-4"
+              >
+                <span className="text-sm text-white font-medium">{m.label}</span>
+                <span className="text-sm text-slate-400 whitespace-nowrap">
+                  {m.firstValue.toFixed(1)} → {m.lastValue.toFixed(1)} {m.unit}
+                  <span className="text-slate-300 ml-2">
+                    ({arrowFor(m.change)} {Math.abs(m.change).toFixed(1)})
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
