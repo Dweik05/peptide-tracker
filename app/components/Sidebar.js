@@ -1,14 +1,12 @@
 "use client";
 
 // ============================================================
-// SIDEBAR (v6)  —  goes in:  app/components/Sidebar.js
-// (FULL REPLACEMENT of v5.)
+// SIDEBAR (v7)  —  goes in:  app/components/Sidebar.js
+// (FULL REPLACEMENT of v6.)
 //
-// ONE change vs v5: the nav links are reordered to follow the
-// flow a new user actually moves through — overview, then set
-// up a protocol, then stock it, then the daily logging, then
-// tracking, then reference, then settings. No links added or
-// removed; only their order changed.
+// ONE change vs v6: added the "Insights" link, placed right after
+// Progress so the analytical views sit together (Progress →
+// Insights → Goals & Streaks). No other links changed.
 // ============================================================
 
 import Link from "next/link";
@@ -22,6 +20,7 @@ const links = [
   { href: "/log", label: "Log Dose", icon: "💉" },
   { href: "/calendar", label: "Calendar", icon: "📅" },
   { href: "/progress", label: "Progress", icon: "📊" },
+  { href: "/insights", label: "Insights", icon: "🎯" },
   { href: "/goals", label: "Goals & Streaks", icon: "🏆" },
   { href: "/lab-results", label: "Lab Results", icon: "🧪" },
   { href: "/side-effects", label: "Side Effects", icon: "⚠️" },
