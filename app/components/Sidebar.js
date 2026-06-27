@@ -1,12 +1,13 @@
 "use client";
 
 // ============================================================
-// SIDEBAR (v7)  —  goes in:  app/components/Sidebar.js
-// (FULL REPLACEMENT of v6.)
+// SIDEBAR (v8)  —  goes in:  app/components/Sidebar.js
+// (FULL REPLACEMENT of v7.)
 //
-// ONE change vs v6: added the "Insights" link, placed right after
-// Progress so the analytical views sit together (Progress →
-// Insights → Goals & Streaks). No other links changed.
+// ONE change vs v7: added the "Doctor Report" link, placed right
+// after Insights so the analytical/summary views sit together
+// (Progress → Insights → Doctor Report → Goals & Streaks).
+// No other links changed.
 // ============================================================
 
 import Link from "next/link";
@@ -21,6 +22,7 @@ const links = [
   { href: "/calendar", label: "Calendar", icon: "📅" },
   { href: "/progress", label: "Progress", icon: "📊" },
   { href: "/insights", label: "Insights", icon: "🎯" },
+  { href: "/report", label: "Doctor Report", icon: "📄" },
   { href: "/goals", label: "Goals & Streaks", icon: "🏆" },
   { href: "/lab-results", label: "Lab Results", icon: "🧪" },
   { href: "/side-effects", label: "Side Effects", icon: "⚠️" },

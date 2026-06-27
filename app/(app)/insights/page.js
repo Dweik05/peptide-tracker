@@ -93,6 +93,29 @@ function Icon({ name, className = "w-4 h-4" }) {
         <path d="M3 21v-5h5" />
       </>
     ),
+    wave: (
+      <path d="M2 12c2 0 2-4 4-4s2 4 4 4 2-4 4-4 2 4 4 4 2-4 4-4" />
+    ),
+    plateau: (
+      <>
+        <path d="M3 12h18" />
+        <circle cx="6" cy="12" r="1.5" />
+        <circle cx="18" cy="12" r="1.5" />
+      </>
+    ),
+    percent: (
+      <>
+        <path d="M19 5 5 19" />
+        <circle cx="7.5" cy="7.5" r="2.5" />
+        <circle cx="16.5" cy="16.5" r="2.5" />
+      </>
+    ),
+    ratio: (
+      <>
+        <rect x="3" y="6" width="18" height="4" rx="1" />
+        <rect x="3" y="14" width="11" height="4" rx="1" />
+      </>
+    ),
     flag: (
       <>
         <path d="M5 21V4" />
@@ -1142,6 +1165,142 @@ export default function Insights() {
   const hasSeverityDose = severityDoseReads.length > 0;
   const hasAnySideEffectsForDose = sideEffects.length > 0;
 
+  // ========== WEEKLY-SMOOTHED WEIGHT RATE (Day 35f Pass 2) ==========
+  // Bucket weigh-ins into 7-day windows from the first weigh-in, average each
+  // week, then take the rate between weekly averages — this smooths out daily
+  // water/food noise that the raw first→latest rate is sensitive to.
+  const smoothUnit =
+    weights.length > 0 ? weights[weights.length - 1].unit || "lbs" : "lbs";
+  let weeklyAvgPoints = [];
+  if (weights.length > 0) {
+    const firstDate = dateOf(weights[0].logged_at);
+    const buckets = {};
+    for (const w of weights) {
+      const wd = dateOf(w.logged_at);
+      const weekIdx = Math.floor((wd - firstDate) / (7 * 86400000));
+      if (!buckets[weekIdx]) buckets[weekIdx] = [];
+      buckets[weekIdx].push(
+        fromLbs(toLbs(parseFloat(w.weight), w.unit), smoothUnit)
+      );
+    }
+    weeklyAvgPoints = Object.keys(buckets)
+      .map((k) => parseInt(k, 10))
+      .sort((a, b) => a - b)
+      .map((idx) => ({ weekIndex: idx, avg: mean(buckets[idx]) }));
+  }
+  let smoothedRate = null;
+  if (weeklyAvgPoints.length >= 2) {
+    const f = weeklyAvgPoints[0];
+    const l = weeklyAvgPoints[weeklyAvgPoints.length - 1];
+    const weeksBetween = l.weekIndex - f.weekIndex;
+    smoothedRate = weeksBetween > 0 ? (l.avg - f.avg) / weeksBetween : null;
+  }
+  const smoothedSeries = weeklyAvgPoints.map((p) => p.avg);
+  const hasSmoothed = smoothedRate !== null;
+
+  // ========== PLATEAU DETECTION (Day 35f Pass 2) ==========
+  // Over a recent window, is weight essentially flat? Uses a % -of-bodyweight
+  // threshold so it's unit-agnostic, and needs enough recent readings to judge.
+  let plateau = null; // { type: 'plateau' | 'moving', ... }
+  if (weights.length >= 3) {
+    const latest = weights[weights.length - 1];
+    const latestDate = dateOf(latest.logged_at);
+    const windowStart = new Date(latestDate);
+    windowStart.setDate(windowStart.getDate() - 28);
+    const inWindow = weights.filter((w) => dateOf(w.logged_at) >= windowStart);
+    if (inWindow.length >= 3) {
+      const wf = inWindow[0];
+      const wl = inWindow[inWindow.length - 1];
+      const unit = wl.unit || "lbs";
+      const vals = inWindow.map((w) =>
+        fromLbs(toLbs(parseFloat(w.weight), w.unit), unit)
+      );
+      const fVal = fromLbs(toLbs(parseFloat(wf.weight), wf.unit), unit);
+      const lVal = fromLbs(toLbs(parseFloat(wl.weight), wl.unit), unit);
+      const days = Math.max(
+        1,
+        Math.round((dateOf(wl.logged_at) - dateOf(wf.logged_at)) / 86400000)
+      );
+      if (days >= 10 && lVal > 0) {
+        const ratePerWeek = (lVal - fVal) / (days / 7);
+        const pctPerWeek = (Math.abs(ratePerWeek) / lVal) * 100;
+        const weeks = days / 7;
+        if (pctPerWeek < 0.3) {
+          plateau = {
+            type: "plateau",
+            weeks,
+            unit,
+            rangeLow: Math.min(...vals),
+            rangeHigh: Math.max(...vals),
+          };
+        } else {
+          plateau = { type: "moving", ratePerWeek, unit, weeks };
+        }
+      }
+    }
+  }
+  const hasPlateauData = plateau !== null;
+
+  // ========== BODY-FAT TREND (Day 35f Pass 2) ==========
+  const bfReadings = weights.filter(
+    (w) =>
+      w.body_fat_percentage !== null &&
+      w.body_fat_percentage !== undefined &&
+      w.body_fat_percentage !== ""
+  );
+  let bodyFatTrend = null;
+  if (bfReadings.length >= 2) {
+    const f = bfReadings[0];
+    const l = bfReadings[bfReadings.length - 1];
+    const fVal = parseFloat(f.body_fat_percentage);
+    const lVal = parseFloat(l.body_fat_percentage);
+    bodyFatTrend = {
+      first: fVal,
+      latest: lVal,
+      change: lVal - fVal,
+      firstDate: dateOf(f.logged_at),
+      latestDate: dateOf(l.logged_at),
+      series: bfReadings.map((w) => parseFloat(w.body_fat_percentage)),
+      count: bfReadings.length,
+    };
+  }
+  const hasBodyFat = bodyFatTrend !== null;
+  const hasAnyBodyFat = bfReadings.length > 0;
+
+  // ========== WAIST-TO-HIP RATIO (Day 35f Pass 2) ==========
+  // Ratio is unit-free (waist and hips share a unit). Shown neutrally with no
+  // health-risk categorization — that's sex-specific medical interpretation.
+  const whrReadings = measurements
+    .filter(
+      (m) =>
+        m.waist != null &&
+        m.waist !== "" &&
+        m.hips != null &&
+        m.hips !== "" &&
+        parseFloat(m.hips) > 0
+    )
+    .map((m) => ({
+      date: dateOf(m.logged_at),
+      ratio: parseFloat(m.waist) / parseFloat(m.hips),
+    }));
+  let whrTrend = null;
+  if (whrReadings.length >= 1) {
+    const latest = whrReadings[whrReadings.length - 1];
+    whrTrend = {
+      latest: latest.ratio,
+      latestDate: latest.date,
+      count: whrReadings.length,
+    };
+    if (whrReadings.length >= 2) {
+      const first = whrReadings[0];
+      whrTrend.first = first.ratio;
+      whrTrend.change = latest.ratio - first.ratio;
+      whrTrend.firstDate = first.date;
+      whrTrend.series = whrReadings.map((r) => r.ratio);
+    }
+  }
+  const hasWhr = whrTrend !== null;
+
   // ---------- render ----------
 
   if (loading) {
@@ -1566,6 +1725,137 @@ export default function Insights() {
         )}
       </div>
 
+      {/* ========== WEEKLY-SMOOTHED WEIGHT RATE ========== */}
+
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <h2 className="text-base font-semibold text-white flex items-center gap-2">
+          <Icon name="wave" className="w-[18px] h-[18px] text-slate-400" />
+          Weekly-smoothed weight rate
+        </h2>
+
+        {!hasSmoothed && (
+          <p className="text-sm text-slate-500 mt-3">
+            A couple of weeks of weigh-ins and this will show your weight trend
+            with day-to-day noise smoothed out — steadier than a single
+            before/after number.
+          </p>
+        )}
+
+        {hasSmoothed && (
+          <>
+            <p className="text-[32px] leading-none font-semibold text-white mt-3 flex items-baseline gap-2">
+              <span>{arrowFor(smoothedRate)}</span>
+              <span>{Math.abs(smoothedRate).toFixed(1)}</span>
+              <span className="text-lg font-medium text-slate-400">
+                {smoothUnit}/week
+              </span>
+            </p>
+            <p className="text-sm text-slate-400 mt-2">
+              Averaged across {weeklyAvgPoints.length} weeks of weigh-ins to even
+              out daily swings.
+            </p>
+            {smoothedSeries.length >= 3 && (
+              <div className="text-slate-300 mt-4">
+                <Sparkline values={smoothedSeries} />
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ========== PLATEAU CHECK ========== */}
+
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <h2 className="text-base font-semibold text-white flex items-center gap-2">
+          <Icon name="plateau" className="w-[18px] h-[18px] text-slate-400" />
+          Plateau check
+        </h2>
+
+        {!hasPlateauData && (
+          <p className="text-sm text-slate-500 mt-3">
+            Log at least 3 weigh-ins across a couple of weeks and this will tell
+            you whether your weight has stalled or is still moving.
+          </p>
+        )}
+
+        {hasPlateauData && plateau.type === "plateau" && (
+          <>
+            <p className="text-sm text-slate-300 mt-3">
+              Your weight&apos;s been holding steady — between{" "}
+              <span className="text-white font-medium">
+                {plateau.rangeLow.toFixed(1)}
+              </span>{" "}
+              and{" "}
+              <span className="text-white font-medium">
+                {plateau.rangeHigh.toFixed(1)} {plateau.unit}
+              </span>{" "}
+              over the last ~{Math.round(plateau.weeks)} weeks. That looks like a
+              plateau.
+            </p>
+            <p className="text-xs text-slate-500 mt-2">
+              A plateau isn&apos;t inherently good or bad — just a flat stretch.
+              Plenty of things can cause one.
+            </p>
+          </>
+        )}
+
+        {hasPlateauData && plateau.type === "moving" && (
+          <p className="text-sm text-slate-300 mt-3">
+            No plateau — your weight&apos;s still moving, about{" "}
+            <span className="text-white font-medium">
+              {arrowFor(plateau.ratePerWeek)}{" "}
+              {Math.abs(plateau.ratePerWeek).toFixed(1)} {plateau.unit}/week
+            </span>{" "}
+            over the last ~{Math.round(plateau.weeks)} weeks.
+          </p>
+        )}
+      </div>
+
+      {/* ========== BODY-FAT TREND ========== */}
+
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <h2 className="text-base font-semibold text-white flex items-center gap-2">
+          <Icon name="percent" className="w-[18px] h-[18px] text-slate-400" />
+          Body-fat trend
+        </h2>
+
+        {!hasAnyBodyFat && (
+          <p className="text-sm text-slate-500 mt-3">
+            No body-fat readings yet. Add a body-fat % alongside your weigh-ins
+            and its movement will show up here.
+          </p>
+        )}
+
+        {hasAnyBodyFat && !hasBodyFat && (
+          <p className="text-sm text-slate-500 mt-3">
+            One body-fat reading so far (
+            {parseFloat(bfReadings[0].body_fat_percentage).toFixed(1)}% on{" "}
+            {shortDate(dateOf(bfReadings[0].logged_at))}). Log another to see the
+            trend.
+          </p>
+        )}
+
+        {hasBodyFat && (
+          <>
+            <p className="text-[32px] leading-none font-semibold text-white mt-3 flex items-baseline gap-2">
+              <span>{arrowFor(bodyFatTrend.change)}</span>
+              <span>{Math.abs(bodyFatTrend.change).toFixed(1)}</span>
+              <span className="text-lg font-medium text-slate-400">% pts</span>
+            </p>
+            <p className="text-sm text-slate-400 mt-2">
+              {bodyFatTrend.first.toFixed(1)}% → {bodyFatTrend.latest.toFixed(1)}%
+              from {shortDate(bodyFatTrend.firstDate)} to{" "}
+              {shortDate(bodyFatTrend.latestDate)}
+            </p>
+            {bodyFatTrend.series.length >= 3 && (
+              <div className="text-slate-300 mt-4">
+                <Sparkline values={bodyFatTrend.series} />
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
       {/* ========== GOAL PROJECTION ========== */}
 
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
@@ -1908,6 +2198,63 @@ export default function Insights() {
           </ul>
         </div>
       )}
+
+      {/* ========== WAIST-TO-HIP RATIO ========== */}
+
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <h2 className="text-base font-semibold text-white flex items-center gap-2">
+          <Icon name="ratio" className="w-[18px] h-[18px] text-slate-400" />
+          Waist-to-hip ratio
+        </h2>
+
+        {!hasWhr && (
+          <p className="text-sm text-slate-500 mt-3">
+            Log both waist and hips on the{" "}
+            <Link
+              href="/progress"
+              className="text-emerald-400 hover:text-emerald-300"
+            >
+              Progress
+            </Link>{" "}
+            page and your waist-to-hip ratio — and how it changes — will appear
+            here.
+          </p>
+        )}
+
+        {hasWhr && (
+          <>
+            <p className="text-[32px] leading-none font-semibold text-white mt-3">
+              {whrTrend.latest.toFixed(2)}
+            </p>
+            {whrTrend.change !== undefined ? (
+              <p className="text-sm text-slate-400 mt-2">
+                {whrTrend.change <= -0.005
+                  ? "↓"
+                  : whrTrend.change >= 0.005
+                  ? "↑"
+                  : "→"}{" "}
+                {Math.abs(whrTrend.change).toFixed(2)} from{" "}
+                {whrTrend.first.toFixed(2)} ({shortDate(whrTrend.firstDate)}) to{" "}
+                {whrTrend.latest.toFixed(2)} ({shortDate(whrTrend.latestDate)})
+              </p>
+            ) : (
+              <p className="text-sm text-slate-400 mt-2">
+                From your measurement on {shortDate(whrTrend.latestDate)}. Log
+                another to see the trend.
+              </p>
+            )}
+            {whrTrend.series && whrTrend.series.length >= 3 && (
+              <div className="text-slate-300 mt-4">
+                <Sparkline values={whrTrend.series} />
+              </div>
+            )}
+            <p className="text-xs text-slate-500 mt-3">
+              Just the ratio of waist to hips, shown without any health judgment
+              — what it means is a conversation for your provider.
+            </p>
+          </>
+        )}
+      </div>
 
       {/* ========== LAB / BIOMARKER TRENDS ========== */}
 
