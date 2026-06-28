@@ -1,14 +1,26 @@
 "use client";
 
 // ============================================================
-// DOCTOR REPORT (Day 36) ...
+// SHARED REPORT (Day 37)  —  goes in:  app/share/[token]/page.js
+//
+// A PUBLIC, no-login page. It reads the token from the URL and calls the
+// get_shared_report(token) database function, which is the ONLY way an
+// anonymous visitor can read shared data — and only a whitelisted summary,
+// only for a valid (non-revoked, non-expired) token. If the token is bad,
+// the function returns null and we show an "unavailable" message.
+//
+// This deliberately repeats the doctor-report layout rather than sharing a
+// component, to avoid destabilizing the working report page. A future
+// refactor can extract a shared <ReportDocument>.
+//
+// Dates are read iOS-safely (from the text, not new Date()).
 // ============================================================
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { isDoseDay } from "../../lib/schedule-helpers";
-import ShareManager from "../../components/ShareManager";
+
 // ---------------- date helpers (local-timezone safe) ----------------
 function dateKeyFromDate(d) {
   const y = d.getFullYear();
@@ -88,7 +100,7 @@ function describeSchedule(s) {
   return "\u2014";
 }
 
-// ---------------- small presentational components ----------------
+// ---------------- presentational ----------------
 function Section({ title, children }) {
   return (
     <section className="mt-6 break-inside-avoid">
@@ -99,12 +111,9 @@ function Section({ title, children }) {
     </section>
   );
 }
-
 function Empty({ children }) {
   return <p className="text-sm text-slate-400 italic">{children}</p>;
 }
-
-// print-friendly line chart (dark line on white, light axes/labels)
 function ReportChart({ points, caption, formatVal }) {
   if (!points || points.length < 2) return null;
   const W = 760;
@@ -113,12 +122,10 @@ function ReportChart({ points, caption, formatVal }) {
   const padR = 16;
   const padT = 16;
   const padB = 30;
-
   const times = points.map((p) => p.date.getTime());
   const minX = Math.min(...times);
   const maxX = Math.max(...times);
   const rangeX = maxX - minX || 1;
-
   const vals = points.map((p) => p.value);
   let minV = Math.min(...vals);
   let maxV = Math.max(...vals);
@@ -127,7 +134,6 @@ function ReportChart({ points, caption, formatVal }) {
     maxV += 1;
   }
   const rangeV = maxV - minV;
-
   const px = (t) => padL + ((t - minX) / rangeX) * (W - padL - padR);
   const py = (v) => padT + (1 - (v - minV) / rangeV) * (H - padT - padB);
   const line = points
@@ -135,7 +141,6 @@ function ReportChart({ points, caption, formatVal }) {
     .join(" ");
   const baseY = H - padB;
   const fmt = formatVal || ((v) => v.toFixed(1));
-
   return (
     <figure className="mt-4 break-inside-avoid">
       {caption && (
@@ -144,38 +149,12 @@ function ReportChart({ points, caption, formatVal }) {
         </figcaption>
       )}
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
-        <line
-          x1={padL}
-          y1={padT}
-          x2={padL}
-          y2={baseY}
-          stroke="#cbd5e1"
-          strokeWidth="1"
-        />
-        <line
-          x1={padL}
-          y1={baseY}
-          x2={W - padR}
-          y2={baseY}
-          stroke="#cbd5e1"
-          strokeWidth="1"
-        />
-        <text
-          x={padL - 6}
-          y={py(maxV) + 4}
-          fontSize="11"
-          fill="#64748b"
-          textAnchor="end"
-        >
+        <line x1={padL} y1={padT} x2={padL} y2={baseY} stroke="#cbd5e1" strokeWidth="1" />
+        <line x1={padL} y1={baseY} x2={W - padR} y2={baseY} stroke="#cbd5e1" strokeWidth="1" />
+        <text x={padL - 6} y={py(maxV) + 4} fontSize="11" fill="#64748b" textAnchor="end">
           {fmt(maxV)}
         </text>
-        <text
-          x={padL - 6}
-          y={py(minV) + 4}
-          fontSize="11"
-          fill="#64748b"
-          textAnchor="end"
-        >
+        <text x={padL - 6} y={py(minV) + 4} fontSize="11" fill="#64748b" textAnchor="end">
           {fmt(minV)}
         </text>
         <polyline
@@ -187,24 +166,12 @@ function ReportChart({ points, caption, formatVal }) {
           strokeLinejoin="round"
         />
         {points.map((p, i) => (
-          <circle
-            key={i}
-            cx={px(p.date.getTime())}
-            cy={py(p.value)}
-            r="3"
-            fill="#0f172a"
-          />
+          <circle key={i} cx={px(p.date.getTime())} cy={py(p.value)} r="3" fill="#0f172a" />
         ))}
         <text x={padL} y={H - 8} fontSize="11" fill="#64748b">
           {shortDate(points[0].date)}
         </text>
-        <text
-          x={W - padR}
-          y={H - 8}
-          fontSize="11"
-          fill="#64748b"
-          textAnchor="end"
-        >
+        <text x={W - padR} y={H - 8} fontSize="11" fill="#64748b" textAnchor="end">
           {shortDate(points[points.length - 1].date)}
         </text>
       </svg>
@@ -212,108 +179,73 @@ function ReportChart({ points, caption, formatVal }) {
   );
 }
 
-export default function Report() {
-  const router = useRouter();
+export default function SharedReport() {
+  const params = useParams();
+  const token = params?.token;
 
   const [loading, setLoading] = useState(true);
-  const [profile, setProfile] = useState(null);
-  const [email, setEmail] = useState("");
-  const [schedules, setSchedules] = useState([]);
-  const [doses, setDoses] = useState([]);
-  const [weights, setWeights] = useState([]);
-  const [measurements, setMeasurements] = useState([]);
-  const [labs, setLabs] = useState([]);
-  const [sideEffects, setSideEffects] = useState([]);
-  const [includeCharts, setIncludeCharts] = useState(true);
+  const [data, setData] = useState(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    async function init() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) {
-        router.push("/login");
+    async function load() {
+      if (!token) {
+        setFailed(true);
+        setLoading(false);
         return;
       }
-      setEmail(session.user.email || "");
-      await Promise.all([
-        fetchProfile(session.user.id),
-        fetchSchedules(session.user.id),
-        fetchDoses(session.user.id),
-        fetchWeights(session.user.id),
-        fetchMeasurements(session.user.id),
-        fetchLabs(session.user.id),
-        fetchSideEffects(session.user.id),
-      ]);
+      const { data: result, error } = await supabase.rpc("get_shared_report", {
+        share_token: token,
+      });
+      if (error || !result) {
+        setFailed(true);
+        setLoading(false);
+        return;
+      }
+      setData(result);
       setLoading(false);
     }
-    init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    load();
+  }, [token]);
 
-  async function fetchProfile(uid) {
-    const { data } = await supabase
-      .from("profiles")
-      .select("full_name, email")
-      .eq("id", uid)
-      .single();
-    setProfile(data || null);
-  }
-  async function fetchSchedules(uid) {
-    const { data } = await supabase
-      .from("reminders")
-      .select("*")
-      .eq("user_id", uid);
-    setSchedules(data || []);
-  }
-  async function fetchDoses(uid) {
-    const { data } = await supabase
-      .from("dose_logs")
-      .select("peptide_name, logged_at")
-      .eq("user_id", uid);
-    setDoses(data || []);
-  }
-  async function fetchWeights(uid) {
-    const { data } = await supabase
-      .from("weight_logs")
-      .select("weight, unit, body_fat_percentage, logged_at")
-      .eq("user_id", uid)
-      .order("logged_at", { ascending: true });
-    setWeights(data || []);
-  }
-  async function fetchMeasurements(uid) {
-    const { data } = await supabase
-      .from("body_measurements")
-      .select("waist, hips, chest, arms, thighs, unit, logged_at")
-      .eq("user_id", uid)
-      .order("logged_at", { ascending: true });
-    setMeasurements(data || []);
-  }
-  async function fetchLabs(uid) {
-    const { data } = await supabase
-      .from("lab_results")
-      .select("biomarker, value, unit, tested_at, created_at")
-      .eq("user_id", uid)
-      .order("tested_at", { ascending: true })
-      .order("created_at", { ascending: true });
-    setLabs(data || []);
-  }
-  async function fetchSideEffects(uid) {
-    const { data } = await supabase
-      .from("side_effect_logs")
-      .select("effect_name, severity, logged_at")
-      .eq("user_id", uid)
-      .order("logged_at", { ascending: true });
-    setSideEffects(data || []);
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center">
+        <p className="text-slate-500">Loading report…</p>
+      </div>
+    );
   }
 
-  // ---------------- computations ----------------
+  if (failed || !data) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center px-4">
+        <div className="max-w-md text-center">
+          <h1 className="text-xl font-semibold text-slate-800">
+            Report unavailable
+          </h1>
+          <p className="text-slate-600 mt-2">
+            This shared link is invalid, has expired, or has been revoked by its
+            owner.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- data from the RPC (already whitelisted + active-only protocols) ----
+  const activeSchedules = data.protocols || [];
+  const doses = data.doses || [];
+  const weights = data.weights || [];
+  const measurements = data.measurements || [];
+  const labs = data.labs || [];
+  const sideEffects = data.side_effects || [];
+  const patientName = data.patient || "Patient";
+  const generatedAt = data.generated_at ? new Date(data.generated_at) : new Date();
+
+  // ---- computations (mirror the doctor report) ----
   const today = new Date();
   today.setHours(12, 0, 0, 0);
 
-  const activeSchedules = schedules.filter((s) => s.active);
-
-  // adherence
   const loggedByPeptide = {};
   for (const d of doses) {
     const name = (d.peptide_name || "").trim();
@@ -358,7 +290,6 @@ export default function Report() {
   const overallPct =
     totalSched > 0 ? Math.round((totalTaken / totalSched) * 100) : null;
 
-  // weight
   const wUnit = weights.length ? weights[weights.length - 1].unit || "lbs" : "lbs";
   let weightSummary = null;
   if (weights.length >= 1) {
@@ -377,7 +308,6 @@ export default function Report() {
     };
   }
 
-  // body fat
   const bf = weights.filter(
     (w) => w.body_fat_percentage !== null && w.body_fat_percentage !== ""
   );
@@ -387,7 +317,6 @@ export default function Report() {
     const l = bf[bf.length - 1];
     bfSummary = {
       current: parseFloat(l.body_fat_percentage),
-      start: parseFloat(f.body_fat_percentage),
       change:
         parseFloat(l.body_fat_percentage) - parseFloat(f.body_fat_percentage),
       count: bf.length,
@@ -395,7 +324,6 @@ export default function Report() {
     };
   }
 
-  // chart series (oldest -> newest), used when "Include charts" is on
   const weightChartPoints = weights.map((w) => ({
     date: dateOf(w.logged_at),
     value: fromLbs(toLbs(parseFloat(w.weight), w.unit), wUnit),
@@ -405,7 +333,6 @@ export default function Report() {
     value: parseFloat(w.body_fat_percentage),
   }));
 
-  // measurements (latest) + WHR
   const mUnit = measurements.length
     ? measurements[measurements.length - 1].unit || "in"
     : "in";
@@ -427,10 +354,7 @@ export default function Report() {
             latestMeas[k] !== undefined &&
             latestMeas[k] !== ""
         )
-        .map(([k, label]) => ({
-          label,
-          value: parseFloat(latestMeas[k]),
-        }))
+        .map(([k, label]) => ({ label, value: parseFloat(latestMeas[k]) }))
     : [];
   let whr = null;
   const whrR = measurements.filter(
@@ -441,7 +365,6 @@ export default function Report() {
     whr = parseFloat(l.waist) / parseFloat(l.hips);
   }
 
-  // labs
   const labGroups = {};
   for (const r of labs) {
     const n = (r.biomarker || "").trim();
@@ -457,7 +380,6 @@ export default function Report() {
       name: n,
       latest: parseFloat(l.value),
       unit: l.unit || f.unit || "",
-      first: parseFloat(f.value),
       change: parseFloat(l.value) - parseFloat(f.value),
       count: arr.length,
       firstDate: dateOf(f.tested_at),
@@ -466,7 +388,6 @@ export default function Report() {
     };
   });
 
-  // side effects
   const seGroups = {};
   for (const e of sideEffects) {
     const n = (e.effect_name || "").trim();
@@ -485,7 +406,6 @@ export default function Report() {
     };
   });
 
-  // reporting period start
   const allDates = [];
   for (const d of doses) allDates.push(dateOf(d.logged_at));
   for (const w of weights) allDates.push(dateOf(w.logged_at));
@@ -497,20 +417,8 @@ export default function Report() {
     ? new Date(Math.min(...allDates.map((d) => d.getTime())))
     : null;
 
-  const patientName =
-    (profile && (profile.full_name || profile.email)) || email || "\u2014";
-
-  if (loading) {
-    return (
-      <div className="p-8">
-        <p className="text-slate-400">Preparing your report…</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="p-6 md:p-8">
-      {/* print isolation: hide everything except the document sheet */}
+    <div className="min-h-screen bg-slate-100 py-8 px-4">
       <style>{`
         @media print {
           @page { margin: 1.4cm; }
@@ -529,38 +437,16 @@ export default function Report() {
         }
       `}</style>
 
-      {/* action bar — hidden when printing */}
-      <div className="max-w-[820px] mx-auto mb-5 flex items-start justify-between gap-4 print:hidden">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white">
-            Doctor report
-          </h1>
-          <p className="text-sm text-slate-400 mt-1">
-            A printable summary of your protocol history. Click the button, then
-            choose &ldquo;Save as PDF&rdquo; as the destination.
-          </p>
-        </div>
-        <div className="shrink-0 flex flex-col items-end gap-2.5">
-          <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={includeCharts}
-              onChange={(e) => setIncludeCharts(e.target.checked)}
-              className="w-4 h-4 accent-emerald-500"
-            />
-            Include charts
-          </label>
-          <button
-            onClick={() => window.print()}
-            className="bg-emerald-500 hover:bg-emerald-400 text-emerald-950 text-sm font-semibold rounded-lg px-4 py-2.5"
-          >
-            Print / Save as PDF
-          </button>
-        </div>
+      {/* small bar — hidden when printing */}
+      <div className="max-w-[820px] mx-auto mb-4 flex items-center justify-between gap-4 print:hidden">
+        <p className="text-sm text-slate-500">Read-only shared report</p>
+        <button
+          onClick={() => window.print()}
+          className="shrink-0 bg-slate-800 hover:bg-slate-700 text-white text-sm font-semibold rounded-lg px-4 py-2.5"
+        >
+          Print / Save as PDF
+        </button>
       </div>
-
-      {/* share manager — hidden when printing */}
-      <ShareManager />
 
       {/* the document */}
       <div
@@ -577,7 +463,7 @@ export default function Report() {
               Prepared for:{" "}
               <span className="text-slate-900 font-medium">{patientName}</span>
             </p>
-            <p>Generated: {fmtDate(today)}</p>
+            <p>Generated: {fmtDate(generatedAt)}</p>
             {periodStart && (
               <p>
                 Reporting period: {fmtDate(periodStart)} &ndash; {fmtDate(today)}
@@ -663,10 +549,6 @@ export default function Report() {
                     ))}
                 </tbody>
               </table>
-              <p className="text-xs text-slate-500 mt-2">
-                A scheduled dose counts as taken if a matching dose was logged on
-                that day.
-              </p>
             </>
           )}
         </Section>
@@ -695,11 +577,10 @@ export default function Report() {
                       </span>{" "}
                       currently &mdash; {arrowFor(weightSummary.change)}{" "}
                       {Math.abs(weightSummary.change).toFixed(1)}{" "}
-                      {weightSummary.unit} from{" "}
-                      {weightSummary.start.toFixed(1)} {weightSummary.unit} (
-                      {shortDate(weightSummary.firstDate)} &rarr;{" "}
-                      {shortDate(weightSummary.lastDate)}, {weightSummary.count}{" "}
-                      weigh-ins).
+                      {weightSummary.unit} from {weightSummary.start.toFixed(1)}{" "}
+                      {weightSummary.unit} ({shortDate(weightSummary.firstDate)}{" "}
+                      &rarr; {shortDate(weightSummary.lastDate)},{" "}
+                      {weightSummary.count} weigh-ins).
                     </p>
                   )}
                 </div>
@@ -764,13 +645,13 @@ export default function Report() {
                 )}
               </div>
 
-              {includeCharts && weightChartPoints.length >= 2 && (
+              {weightChartPoints.length >= 2 && (
                 <ReportChart
                   points={weightChartPoints}
                   caption={`Weight (${wUnit})`}
                 />
               )}
-              {includeCharts && bfChartPoints.length >= 2 && (
+              {bfChartPoints.length >= 2 && (
                 <ReportChart points={bfChartPoints} caption="Body fat (%)" />
               )}
             </div>
@@ -855,8 +736,8 @@ export default function Report() {
 
         {/* footer */}
         <div className="mt-8 pt-3 border-t border-slate-200 text-xs text-slate-400">
-          Generated by Peptide Tracker on {fmtDate(today)}. Self-reported data —
-          not a medical record.
+          Generated by Peptide Tracker on {fmtDate(generatedAt)}. Self-reported
+          data — not a medical record.
         </div>
       </div>
     </div>
