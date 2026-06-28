@@ -8,6 +8,12 @@
 //
 // All CTAs point to /signup and /login. Footer links to /privacy and
 // /terms. Confirm /signup and /login match your real auth routes.
+//
+// DAY 39 mobile pass (CSS-only, markup unchanged):
+//   • Nav compacted on phones so brand + Log in + Get started fit one row.
+//   • Pricing cards now stay SIDE BY SIDE on phones (compacted to fit),
+//     instead of stacking.
+//   • Tighter section spacing + heading sizes on phones.
 // ============================================================
 
 import Link from "next/link";
@@ -180,13 +186,53 @@ const css = `
 .lp-foot-disc { font-size: 12.5px; color: #64748b; line-height: 1.6; }
 .lp-foot-copy { font-size: 12.5px; color: #475569; margin-top: 12px; }
 
+/* ---------- tablets & large phones ---------- */
 @media (max-width: 860px) {
   .lp-h1 { font-size: 46px; }
   .lp-h2 { font-size: 32px; }
-  .lp-cols, .lp-scols, .lp-plans { grid-template-columns: 1fr; gap: 32px; }
+  .lp-cols, .lp-scols { grid-template-columns: 1fr; gap: 32px; }
   .lp-goals { grid-template-columns: 1fr; }
   .lp-steps { grid-template-columns: 1fr; }
   .lp-final h2 { font-size: 32px; }
+  .lp-section { padding: 64px 24px 72px; }
+  /* pricing stays two-up — just a slightly tighter gap */
+  .lp-plans { gap: 16px; }
+}
+
+/* ---------- phones ---------- */
+@media (max-width: 480px) {
+  /* nav — keep brand + Log in + Get started on one tidy row */
+  .lp-nav { padding: 16px 16px; }
+  .lp-brand { font-size: 15px; gap: 7px; }
+  .lp-mark { width: 26px; height: 26px; font-size: 13px; }
+  .lp-nav-right { gap: 9px; }
+  .lp-login { font-size: 13px; }
+  .lp-nav-right .lp-btn { padding: 8px 13px; font-size: 13px; }
+
+  /* hero */
+  .lp-hero-wrap { padding: 56px 20px 76px; }
+  .lp-h1 { font-size: 40px; }
+  .lp-sub { font-size: 16px; }
+
+  /* tighter section spacing + heading sizes */
+  .lp-section { padding: 52px 18px 56px; }
+  .lp-h2 { font-size: 28px; }
+  .lp-final { padding: 72px 20px; }
+  .lp-final h2 { font-size: 28px; }
+  .lp-btn-lg { padding: 13px 22px; font-size: 15px; }
+
+  /* PRICING — two cards side by side, compacted so they fit cleanly */
+  .lp-plans { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .lp-plan { padding: 16px 13px; }
+  .lp-plan-name { font-size: 13px; }
+  .lp-price { font-size: 27px; }
+  .lp-price span { font-size: 11.5px; }
+  .lp-plan-note { font-size: 11px; }
+  .lp-plan-list { margin-top: 14px; gap: 9px; }
+  .lp-plan-li { font-size: 11.5px; gap: 7px; line-height: 1.4; }
+  .lp-plan-li svg { width: 13px; height: 13px; }
+  .lp-plan-pop-badge { font-size: 9.5px; padding: 3px 8px; margin-bottom: 12px; }
+  .lp-plan .lp-btn { margin-top: 18px; padding: 11px 10px; font-size: 12.5px; }
 }
 `;
 
