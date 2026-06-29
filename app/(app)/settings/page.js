@@ -73,6 +73,26 @@ const DEFAULT_TZ = "America/Toronto";
 const WEIGHT_UNITS = ["lbs", "kg", "st"];
 const MEASUREMENT_UNITS = ["in", "cm"];
 
+// Friendly labels + display order for the "Your data" summary card. Each
+// table here is also the list we count (head-only count queries).
+const SUMMARY_ITEMS = [
+  { table: "dose_logs", label: "Doses logged" },
+  { table: "weight_logs", label: "Weight entries" },
+  { table: "body_measurements", label: "Body measurements" },
+  { table: "injection_sites", label: "Injection sites" },
+  { table: "inventory", label: "Inventory items" },
+  { table: "lab_results", label: "Lab results" },
+  { table: "goals", label: "Goals" },
+  { table: "gym_logs", label: "Workout logs" },
+  { table: "progress_photos", label: "Progress photos" },
+  { table: "protocol_drafts", label: "Saved protocols" },
+  { table: "reminders", label: "Reminders" },
+  { table: "side_effect_logs", label: "Side effects logged" },
+  { table: "share_links", label: "Share links" },
+  { table: "streaks", label: "Streaks" },
+  { table: "subscription_events", label: "Subscription events" },
+];
+
 // The browser's best guess at the user's timezone, e.g. "America/Toronto".
 function detectBrowserTimezone() {
   try {
@@ -186,6 +206,16 @@ export default function SettingsPage() {
   const [exportError, setExportError] = useState("");
   const [exportSuccess, setExportSuccess] = useState("");
 
+  // data summary (a count per category)
+  const [summary, setSummary] = useState(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [summaryError, setSummaryError] = useState("");
+
+  // delete account
+  const [confirmText, setConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
   // a ticking clock so the "time there" preview stays live
   const [, setClockTick] = useState(0);
 
@@ -239,6 +269,45 @@ export default function SettingsPage() {
     const id = setInterval(() => setClockTick((n) => n + 1), 60000);
     return () => clearInterval(id);
   }, []);
+
+  // ---------- load the data summary (a count per category) ----------
+  useEffect(() => {
+    if (!userId) return;
+
+    let cancelled = false;
+    async function loadSummary() {
+      setSummaryLoading(true);
+      setSummaryError("");
+      try {
+        // head:true returns just the row count, no rows — cheap to run.
+        const results = await Promise.all(
+          SUMMARY_ITEMS.map(async ({ table }) => {
+            const { count, error } = await supabase
+              .from(table)
+              .select("*", { count: "exact", head: true })
+              .eq("user_id", userId);
+            return { table, count: count || 0, error };
+          })
+        );
+
+        const map = {};
+        for (const r of results) {
+          if (r.error) throw r.error;
+          map[r.table] = r.count;
+        }
+        if (!cancelled) setSummary(map);
+      } catch (e) {
+        if (!cancelled) setSummaryError("Couldn't load your data summary.");
+      } finally {
+        if (!cancelled) setSummaryLoading(false);
+      }
+    }
+    loadSummary();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   // ---------- save the display name (Auth, not profiles) ----------
   async function handleSaveName() {
@@ -465,6 +534,46 @@ export default function SettingsPage() {
       setExportError(`Couldn't export your data: ${e.message || e}`);
     } finally {
       setExporting(false);
+    }
+  }
+
+  // ---------- permanently delete the account + all data ----------
+  async function handleDeleteAccount() {
+    setDeleteError("");
+
+    // guard: the button is also disabled until this matches
+    if (confirmText !== "DELETE") return;
+
+    setDeleting(true);
+    try {
+      // 1. Remove the user's progress-photo FILES from storage first. The DB
+      //    rows are deleted by the function below, but Supabase refuses to
+      //    delete an auth user who still owns storage objects — so the files
+      //    have to go first.
+      const { data: photos } = await supabase
+        .from("progress_photos")
+        .select("storage_path");
+      const paths = (photos || [])
+        .map((p) => p.storage_path)
+        .filter(Boolean);
+      if (paths.length > 0) {
+        const { error: removeError } = await supabase.storage
+          .from("progress-photos")
+          .remove(paths);
+        if (removeError) throw removeError;
+      }
+
+      // 2. Delete every row we store for this user, their profile, and their
+      //    login itself — all in one secure server-side function.
+      const { error } = await supabase.rpc("delete_my_account");
+      if (error) throw error;
+
+      // 3. End the (now orphaned) session and leave.
+      await supabase.auth.signOut();
+      router.push("/");
+    } catch (e) {
+      setDeleteError(`Couldn't delete your account: ${e.message || e}`);
+      setDeleting(false);
     }
   }
 
@@ -817,6 +926,38 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* ---------- your data summary ---------- */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <h2 className="text-lg font-semibold text-white mb-1">Your data</h2>
+        <p className="text-sm text-slate-500 mb-4">
+          Everything Peptide Tracker has stored for you, at a glance.
+        </p>
+
+        {summaryError && (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg px-4 py-3 text-sm mb-4">
+            {summaryError}
+          </div>
+        )}
+
+        {summaryLoading ? (
+          <p className="text-sm text-slate-400">Loading your data summary…</p>
+        ) : summary ? (
+          <div className="space-y-2">
+            {SUMMARY_ITEMS.map(({ table, label }) => (
+              <div
+                key={table}
+                className="flex items-center justify-between text-sm border-b border-slate-800 pb-2 last:border-b-0 last:pb-0"
+              >
+                <span className="text-slate-300">{label}</span>
+                <span className="text-white font-medium tabular-nums">
+                  {summary[table] ?? 0}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
       {/* ---------- export your data ---------- */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
         <h2 className="text-lg font-semibold text-white mb-1">
@@ -851,6 +992,47 @@ export default function SettingsPage() {
           Your progress photos are listed by filename; the image files
           themselves aren't included in this file.
         </p>
+      </div>
+
+      {/* ---------- delete account (danger zone) ---------- */}
+      <div className="bg-slate-900 border border-red-500/30 rounded-xl p-6">
+        <h2 className="text-lg font-semibold text-red-400 mb-1">
+          Delete account
+        </h2>
+        <p className="text-sm text-slate-500 mb-4">
+          Permanently delete your account and everything in it — doses, weight,
+          measurements, inventory, labs, goals, photos, all of it. This{" "}
+          <span className="text-slate-300 font-medium">cannot be undone.</span>{" "}
+          If you might want your data later, export it first using the section
+          above.
+        </p>
+
+        {deleteError && (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg px-4 py-3 text-sm mb-4">
+            {deleteError}
+          </div>
+        )}
+
+        <label className="block text-sm text-slate-400 mb-1">
+          Type <span className="text-slate-200 font-semibold">DELETE</span> to
+          confirm
+        </label>
+        <input
+          type="text"
+          value={confirmText}
+          onChange={(event) => setConfirmText(event.target.value)}
+          placeholder="DELETE"
+          className={inputClasses}
+        />
+
+        <button
+          type="button"
+          onClick={handleDeleteAccount}
+          disabled={deleting || confirmText !== "DELETE"}
+          className="w-full sm:w-auto mt-4 bg-red-600 hover:bg-red-700 text-white font-semibold px-8 py-3 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {deleting ? "Deleting your account…" : "Delete my account forever"}
+        </button>
       </div>
     </div>
   );
