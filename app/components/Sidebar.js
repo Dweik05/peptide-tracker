@@ -32,7 +32,6 @@ const links = [
   { href: "/goals", label: "Goals & Streaks", icon: "🏆" },
   { href: "/lab-results", label: "Lab Results", icon: "🧪" },
   { href: "/side-effects", label: "Side Effects", icon: "⚠️" },
-  { href: "/gym", label: "Gym PRs", icon: "🏋️" },
   { href: "/peptides", label: "Peptide Encyclopedia", icon: "📚" },
   { href: "/settings", label: "Settings", icon: "⚙️" },
 ];
