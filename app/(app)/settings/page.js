@@ -181,6 +181,11 @@ export default function SettingsPage() {
   const [travelError, setTravelError] = useState("");
   const [travelSuccess, setTravelSuccess] = useState("");
 
+  // export
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
+  const [exportSuccess, setExportSuccess] = useState("");
+
   // a ticking clock so the "time there" preview stays live
   const [, setClockTick] = useState(0);
 
@@ -378,6 +383,89 @@ export default function SettingsPage() {
     setTravelEnd("");
     setTravelSuccess("Travel mode cleared.");
     setTimeout(() => setTravelSuccess(""), 4000);
+  }
+
+  // ---------- export all of the user's data as a JSON download ----------
+  async function handleExport() {
+    setExportError("");
+    setExportSuccess("");
+
+    if (!userId) return;
+
+    setExporting(true);
+    try {
+      // Every table that holds this user's personal data. RLS already limits
+      // rows to the signed-in user; the explicit user_id filter is a second,
+      // belt-and-suspenders layer. (The shared "peptides" catalog isn't
+      // personal data, so it's intentionally left out.)
+      const userTables = [
+        "body_measurements",
+        "dose_logs",
+        "goals",
+        "gym_logs",
+        "injection_sites",
+        "inventory",
+        "lab_results",
+        "progress_photos",
+        "protocol_drafts",
+        "reminders",
+        "share_links",
+        "side_effect_logs",
+        "streaks",
+        "subscription_events",
+        "weight_logs",
+      ];
+
+      const bundle = {
+        exported_at: new Date().toISOString(),
+        account: { id: userId, email: email },
+      };
+
+      // the user's profile row (keyed by id, not user_id)
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .single();
+      if (profileError) throw profileError;
+      bundle.profile = profile;
+
+      // pull every table in parallel, then fold the results into the bundle
+      const results = await Promise.all(
+        userTables.map(async (table) => {
+          const { data, error } = await supabase
+            .from(table)
+            .select("*")
+            .eq("user_id", userId);
+          return { table, data, error };
+        })
+      );
+
+      for (const r of results) {
+        if (r.error) throw r.error;
+        bundle[r.table] = r.data || [];
+      }
+
+      // turn it into a file and click a temporary link to download it
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `peptide-tracker-export-${todayLocalString()}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setExportSuccess("Your data has been downloaded.");
+      setTimeout(() => setExportSuccess(""), 4000);
+    } catch (e) {
+      setExportError(`Couldn't export your data: ${e.message || e}`);
+    } finally {
+      setExporting(false);
+    }
   }
 
   // Build the dropdown options: the curated list, plus the current
@@ -727,6 +815,42 @@ export default function SettingsPage() {
             Clear
           </button>
         </div>
+      </div>
+
+      {/* ---------- export your data ---------- */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <h2 className="text-lg font-semibold text-white mb-1">
+          Export your data
+        </h2>
+        <p className="text-sm text-slate-500 mb-4">
+          Download everything you've logged — doses, weight, measurements,
+          inventory, labs, goals, and more — as a single JSON file you can keep.
+        </p>
+
+        {exportError && (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg px-4 py-3 text-sm mb-4">
+            {exportError}
+          </div>
+        )}
+        {exportSuccess && (
+          <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg px-4 py-3 text-sm mb-4">
+            {exportSuccess}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={handleExport}
+          disabled={exporting}
+          className="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-8 py-3 rounded-lg disabled:opacity-50"
+        >
+          {exporting ? "Preparing your data..." : "Export my data"}
+        </button>
+
+        <p className="text-sm text-slate-500 mt-3">
+          Your progress photos are listed by filename; the image files
+          themselves aren't included in this file.
+        </p>
       </div>
     </div>
   );
