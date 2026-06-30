@@ -5,12 +5,10 @@
 // (add it to your middleware's allowed list if you gate routes).
 //
 // IMPORTANT: this is a solid STARTER template, not legal advice.
-// Have it reviewed before you take real users or money. Fill the
-// blanks marked [LIKE THIS]:
-//   - [CONTACT EMAIL]  (e.g. support@yourdomain.com)
-//   - [LEGAL NAME]     (your name, or a registered business name)
-//   - [JURISDICTION]   (defaulted to Ontario, Canada — change if needed)
-// Search this file for "[" to find them.
+// Have a professional review it before relying on it for real users/payments.
+// Operator: Mohammad Dweik. Contact: mohammaddweik5002@gmail.com.
+// If you later switch to a support@yourdomain address, update it here AND in
+// app/terms/page.js.
 // ============================================================
 
 import Link from "next/link";
@@ -32,13 +30,13 @@ export default function PrivacyPage() {
         </Link>
 
         <h1 className="mt-6 text-3xl font-bold text-white">Privacy Policy</h1>
-        <p className="mt-2 text-sm text-slate-500">Last updated: June 16, 2026</p>
+        <p className="mt-2 text-sm text-slate-500">Last updated: June 30, 2026</p>
 
         <div className="mt-8 space-y-8 leading-relaxed">
           <section>
             <p>
               This Privacy Policy explains how Peptide Tracker ("we," "us," or
-              "the app"), operated by [LEGAL NAME], collects, uses, and protects
+              "the app"), operated by Mohammad Dweik, collects, uses, and protects
               your information when you use our website and services. Peptide
               Tracker is a personal tracking tool. By using it, you agree to the
               practices described here.
@@ -132,7 +130,7 @@ export default function PrivacyPage() {
               You can access and update your information from within the app. You
               may request a copy of your data (export), or request that your
               account and associated data be deleted, at any time by contacting
-              us at [CONTACT EMAIL]. We will honor applicable data-protection
+              us at mohammaddweik5002@gmail.com. We will honor applicable data-protection
               rights available to you under the laws of your jurisdiction.
             </p>
           </section>
@@ -177,10 +175,10 @@ export default function PrivacyPage() {
             <p>
               Questions about this policy or your data? Reach us at{" "}
               <a
-                href="mailto:[CONTACT EMAIL]"
+                href="mailto:mohammaddweik5002@gmail.com"
                 className="text-emerald-400 hover:text-emerald-300"
               >
-                [CONTACT EMAIL]
+                mohammaddweik5002@gmail.com
               </a>
               .
             </p>

@@ -4,12 +4,10 @@
 // Public page — make sure "/terms" is reachable without login.
 //
 // IMPORTANT: this is a solid STARTER template, not legal advice.
-// Have it reviewed before you take real users or money. Fill the
-// blanks marked [LIKE THIS]:
-//   - [CONTACT EMAIL]
-//   - [LEGAL NAME]
-//   - [JURISDICTION]  (defaulted to the Province of Ontario, Canada)
-// Search this file for "[" to find them.
+// Have a professional review it before relying on it for real users/payments.
+// Operator: Mohammad Dweik. Contact: mohammaddweik5002@gmail.com.
+// Governing law: Province of Ontario, Canada. If you switch to a
+// support@yourdomain contact address, update it here AND in app/privacy/page.js.
 //
 // Note: the payment/subscription section assumes a freemium model
 // (free tier + optional paid plan). Adjust if your model changes.
@@ -34,7 +32,7 @@ export default function TermsPage() {
         </Link>
 
         <h1 className="mt-6 text-3xl font-bold text-white">Terms of Service</h1>
-        <p className="mt-2 text-sm text-slate-500">Last updated: June 16, 2026</p>
+        <p className="mt-2 text-sm text-slate-500">Last updated: June 30, 2026</p>
 
         {/* prominent medical disclaimer up top */}
         <div className="mt-6 bg-amber-500/5 border border-amber-500/25 rounded-xl p-5">
@@ -57,7 +55,7 @@ export default function TermsPage() {
             </h2>
             <p>
               These Terms of Service ("Terms") govern your access to and use of
-              Peptide Tracker (the "service"), operated by [LEGAL NAME]. By
+              Peptide Tracker (the "service"), operated by Mohammad Dweik. By
               creating an account or using the service, you agree to these Terms.
               If you do not agree, do not use the service.
             </p>
@@ -224,9 +222,8 @@ export default function TermsPage() {
               13. Governing law
             </h2>
             <p>
-              These Terms are governed by the laws of [JURISDICTION] (the
-              Province of Ontario, Canada), without regard to its conflict-of-law
-              rules.
+              These Terms are governed by the laws of the Province of Ontario,
+              Canada, without regard to its conflict-of-law rules.
             </p>
           </section>
 
@@ -237,10 +234,10 @@ export default function TermsPage() {
             <p>
               Questions about these Terms? Reach us at{" "}
               <a
-                href="mailto:[CONTACT EMAIL]"
+                href="mailto:mohammaddweik5002@gmail.com"
                 className="text-emerald-400 hover:text-emerald-300"
               >
-                [CONTACT EMAIL]
+                mohammaddweik5002@gmail.com
               </a>
               .
             </p>
