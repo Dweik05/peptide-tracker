@@ -1,15 +1,14 @@
 // ============================================================
 // STRIPE WEBHOOK  —  app/api/stripe/webhook/route.js
 //
-// Stripe calls this endpoint when things happen to a subscription
-// (payment completed, renewed, canceled, payment failed). We verify
-// the event is genuinely from Stripe using the raw request body + your
-// signing secret, then write the subscription's state onto the user's
-// profile. Only the service role may touch the billing columns, so this
-// runs with the master key.
+// Stripe calls this endpoint when a subscription changes (payment
+// completed, renewed, canceled, payment failed). We verify the event is
+// genuinely from Stripe using the raw request body + your signing secret,
+// then write the subscription's state onto the user's profile. Only the
+// service role may touch the billing columns, so this uses the master key.
 //
-// IMPORTANT: the raw body (await request.text()) is required for
-// signature verification -- do NOT parse it as JSON first.
+// IMPORTANT: the raw body (await request.text()) is required for signature
+// verification -- do NOT parse it as JSON first.
 // ============================================================
 
 import { createClient } from "@supabase/supabase-js";
@@ -18,7 +17,6 @@ import { stripe } from "../../../lib/stripe";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// Translate a Stripe subscription status into our own vocabulary.
 function mapStatus(stripeStatus) {
   switch (stripeStatus) {
     case "active":
@@ -32,13 +30,10 @@ function mapStatus(stripeStatus) {
     case "canceled":
       return "canceled";
     default:
-      // incomplete, incomplete_expired, paused, etc. -> treat as no access
       return "free";
   }
 }
 
-// Server-side (service-role) client -- the only identity allowed to write
-// the billing columns your trigger protects.
 function admin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -47,12 +42,9 @@ function admin() {
   );
 }
 
-// Copy a subscription's current state onto the matching profile row.
 async function syncSubscriptionToProfile(subscription) {
   const supabaseAdmin = admin();
 
-  // As of recent Stripe API versions the billing period lives on the
-  // subscription ITEM, not the subscription itself.
   const item =
     subscription.items && subscription.items.data
       ? subscription.items.data[0]
@@ -83,7 +75,6 @@ async function syncSubscriptionToProfile(subscription) {
 }
 
 export async function POST(request) {
-  // 1) Verify the event is really from Stripe, using the RAW body.
   const rawBody = await request.text();
   const signature = request.headers.get("stripe-signature");
 
@@ -95,13 +86,13 @@ export async function POST(request) {
       process.env.STRIPE_WEBHOOK_SECRET
     );
   } catch (err) {
+    console.error("[webhook] signature verification failed:", err.message);
     return Response.json(
-      { error: "Signature verification failed: " + err.message },
+      { error: "Signature verification failed." },
       { status: 400 }
     );
   }
 
-  // 2) Handle the events we care about.
   try {
     switch (event.type) {
       case "checkout.session.completed": {
@@ -137,14 +128,12 @@ export async function POST(request) {
       }
 
       default:
-        // Other event types are ignored.
         break;
     }
   } catch (err) {
-    // A 500 tells Stripe to retry the event later.
-    return Response.json({ error: err.message }, { status: 500 });
+    console.error("[webhook] handler error:", err.message);
+    return Response.json({ error: "Webhook handler error." }, { status: 500 });
   }
 
-  // 3) Acknowledge receipt so Stripe stops resending.
   return Response.json({ received: true });
 }
