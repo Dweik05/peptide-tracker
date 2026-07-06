@@ -28,6 +28,7 @@
 // timezone column. Nothing else on the app depends on this page.
 // ============================================================
 import ChangePassword from "../../components/ChangePassword";
+import ManageSubscription from "../../components/ManageSubscription";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
