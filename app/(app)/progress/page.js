@@ -28,6 +28,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
+import { hasPremiumAccess } from "../../lib/access";
 import {
   ResponsiveContainer,
   LineChart,
@@ -87,6 +88,7 @@ const MEASUREMENT_UNITS = ["in", "cm"];
 // Photo upload rules
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_PHOTO_SIZE_MB = 10;
+const FREE_PHOTO_LIMIT = 5;
 
 // The four chart range buttons
 const RANGES = [
@@ -243,6 +245,7 @@ export default function ProgressPage() {
 
   // ----- progress photos -----
   const [photos, setPhotos] = useState([]); // rows + temporary view URLs
+  const [isPremium, setIsPremium] = useState(false);
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState("");
   const [photoCaption, setPhotoCaption] = useState("");
@@ -369,11 +372,11 @@ export default function ProgressPage() {
   }
 
   // ---------- fetch profile prefs (weigh-in email + default units) ----------
-  async function fetchProfilePrefs(uid) {
+async function fetchProfilePrefs(uid) {
     const { data } = await supabase
       .from("profiles")
       .select(
-        "weekly_weighin_email, default_weight_unit, default_measurement_unit"
+        "weekly_weighin_email, default_weight_unit, default_measurement_unit, subscription_status, subscription_end_date"
       )
       .eq("id", uid)
       .single();
@@ -382,8 +385,9 @@ export default function ProgressPage() {
     // start the logging forms in the units chosen on the Settings page
     if (data.default_weight_unit) setUnit(data.default_weight_unit);
     if (data.default_measurement_unit) setMUnit(data.default_measurement_unit);
+    // premium unlocks unlimited progress photos
+    setIsPremium(hasPremiumAccess(data));
   }
-
   // ---------- toggle the weekly weigh-in email preference ----------
   async function handleToggleWeeklyEmail() {
     const next = !weeklyEmail;
@@ -566,7 +570,12 @@ export default function ProgressPage() {
       setPError("Choose a photo first.");
       return;
     }
-
+    if (!isPremium && photos.length >= FREE_PHOTO_LIMIT) {
+      setPError(
+        `The free plan includes up to ${FREE_PHOTO_LIMIT} progress photos. Upgrade to Premium for unlimited.`
+      );
+      return;
+    }
     if (!photoDate || photoDate > today) {
       setPError("Please pick today's date or an earlier one.");
       return;
@@ -1589,6 +1598,25 @@ export default function ProgressPage() {
 
             {showPhotos && (
               <div className="mt-4">
+                {!isPremium && (
+                  <div className="mb-4 rounded-lg bg-slate-800 border border-slate-700 px-4 py-3 text-sm">
+                    <p className="text-slate-300">
+                      Free plan:{" "}
+                      <span className="text-white font-medium">
+                        {photos.length} of {FREE_PHOTO_LIMIT}
+                      </span>{" "}
+                      photos used.
+                    </p>
+                    {photos.length >= FREE_PHOTO_LIMIT && (
+                      
+                        href="/pricing"
+                        className="block mt-1 text-emerald-400 hover:text-emerald-300 font-medium"
+                      >
+                        Upgrade for unlimited photos
+                      </a>
+                    )}
+                  </div>
+                )}
                 {/* upload form */}
                 <div>
                   <label className="block text-sm text-slate-400 mb-1">

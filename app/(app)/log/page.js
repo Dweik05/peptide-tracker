@@ -117,39 +117,35 @@ function recencyFill(lastTs) {
 // rotation map (extracted so it exists exactly once).
 // ------------------------------------------------------------
 function BodySilhouette({ view }) {
-  if (view === "front") {
-    return (
-      <g fill="none" stroke="#586461" strokeWidth="1.5">
-        <ellipse cx="200" cy="60" rx="28" ry="35" fill="#1F2926" />
-        <rect x="190" y="90" width="20" height="20" fill="#1F2926" />
-        <path d="M155 110 L245 110 L250 300 L150 300 Z" fill="#1F2926" />
-        <path d="M155 115 L130 120 L120 240 L140 245 L150 130 Z" fill="#1F2926" />
-        <path d="M245 115 L270 120 L280 240 L260 245 L250 130 Z" fill="#1F2926" />
-        <path d="M150 300 L165 300 L170 420 L155 420 Z" fill="#1F2926" />
-        <path d="M235 300 L250 300 L245 420 L230 420 Z" fill="#1F2926" />
-        <line x1="155" y1="115" x2="245" y2="115" stroke="#788481" />
-        <line x1="165" y1="185" x2="235" y2="185" stroke="#2A3431" />
-        <line x1="158" y1="245" x2="242" y2="245" stroke="#2A3431" />
-        <line x1="152" y1="295" x2="248" y2="295" stroke="#2A3431" />
-      </g>
-    );
-  }
   return (
-    <g fill="none" stroke="#586461" strokeWidth="1.5">
-      <ellipse cx="200" cy="60" rx="28" ry="35" fill="#1F2926" />
-      <rect x="190" y="90" width="20" height="20" fill="#1F2926" />
-      <path d="M155 110 L245 110 L250 300 L150 300 Z" fill="#1F2926" />
-      <path d="M155 115 L130 120 L120 240 L140 245 L150 130 Z" fill="#1F2926" />
-      <path d="M245 115 L270 120 L280 240 L260 245 L250 130 Z" fill="#1F2926" />
-      <path d="M150 300 L165 300 L170 420 L155 420 Z" fill="#1F2926" />
-      <path d="M235 300 L250 300 L245 420 L230 420 Z" fill="#1F2926" />
-      <line x1="200" y1="115" x2="200" y2="295" stroke="#2A3431" />
-      <line x1="175" y1="140" x2="225" y2="140" stroke="#2A3431" />
-      <line x1="170" y1="175" x2="230" y2="175" stroke="#2A3431" />
+    <g>
+      <g fill="#1F2926" stroke="#586461" strokeWidth="1.5">
+        <ellipse cx="200" cy="56" rx="29" ry="33" />
+        <path d="M186 88 Q186 100 183 106 L217 106 Q214 100 214 88 Z" />
+        <path d="M150 116 Q200 100 250 116 Q255 160 244 205 Q236 250 234 275 Q238 305 232 322 L168 322 Q162 305 166 275 Q164 250 156 205 Q145 160 150 116 Z" />
+        <path d="M150 118 Q128 126 124 170 L120 250 Q119 264 128 262 Q137 261 139 250 L147 185 Q149 145 154 124 Z" />
+        <path d="M250 118 Q272 126 276 170 L280 250 Q281 264 272 262 Q263 261 261 250 L253 185 Q251 145 246 124 Z" />
+        <path d="M168 324 L199 324 Q201 400 194 474 Q193 482 185 481 L176 480 Q167 405 169 360 Q169 335 168 324 Z" />
+        <path d="M232 324 L201 324 Q199 400 206 474 Q207 482 215 481 L224 480 Q233 405 231 360 Q231 335 232 324 Z" />
+      </g>
+      {view === "front" ? (
+        <g fill="none" stroke="#2A3431" strokeWidth="1.2">
+          <path d="M176 130 Q200 138 224 130" />
+          <path d="M200 140 L200 205" />
+          <path d="M186 178 L214 178" strokeWidth="1" />
+          <path d="M187 195 L213 195" strokeWidth="1" />
+        </g>
+      ) : (
+        <g fill="none" stroke="#2A3431" strokeWidth="1.2">
+          <path d="M200 118 L200 320" />
+          <path d="M182 150 Q190 162 185 176" strokeWidth="1" />
+          <path d="M218 150 Q210 162 215 176" strokeWidth="1" />
+          <path d="M200 324 L200 370" />
+        </g>
+      )}
     </g>
   );
 }
-
 // ------------------------------------------------------------
 // The site picker used by the form (unchanged behavior).
 // ------------------------------------------------------------
