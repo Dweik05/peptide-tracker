@@ -1,23 +1,34 @@
 "use client";
 
 // ============================================================
-// SIDEBAR (v9)  —  goes in:  app/components/Sidebar.js
-// (FULL REPLACEMENT of v8.)
+// SIDEBAR (v10 — with guided tour)  —  goes in: app/components/Sidebar.js
+// (FULL REPLACEMENT of v9.)
 //
-// Mobile-friendly navigation:
-//   • Desktop (md and up): the same fixed left sidebar as before — unchanged.
-//   • Mobile (below md): the sidebar is hidden. Instead there's a slim top bar
-//     with a hamburger button that slides open a menu drawer. Tapping a link,
-//     the X, or the dimmed background closes it. Body scroll locks while open.
+// Everything from v9 is unchanged: desktop sidebar, mobile hamburger drawer,
+// shared NavList, logout. NEW in v10: a guided site tour (driver.js).
 //
-// Same links, same logout. The links list is shared between the desktop
-// sidebar and the mobile drawer via the <NavList> helper, so there's only
-// one place to edit them.
+//   • A "Take a tour" button in both the desktop sidebar and the mobile drawer.
+//   • The tour walks down the nav, highlighting each section with a one-liner.
+//   • On mobile it opens the drawer first, then tours the drawer links.
+//   • It auto-runs ONCE: the onboarding pop-up fires a `pt:start-tour` event
+//     when a new user finishes it, and as a backup it auto-starts on the
+//     dashboard for anyone who finished onboarding but hasn't toured yet.
+//   • Finishing or closing the tour sets profiles.tour_completed = true.
+//
+// The tour steps are GENERATED FROM the `links` array + a descriptions map, so
+// the tour stays in sync with the sidebar automatically: remove a link and its
+// step disappears; add a link and you just drop one line in TOUR_DESCRIPTIONS.
+//
+// Requires:  npm install driver.js   and a `tour_completed` column on profiles.
+// If Next complains about the CSS import below, move that one import line to
+// app/layout.js instead.
 // ============================================================
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
 import { supabase } from "../lib/supabase";
 
 const links = [
@@ -36,6 +47,66 @@ const links = [
   { href: "/settings", label: "Settings", icon: "⚙️" },
 ];
 
+// One line per section the tour should cover, keyed by href. To include a new
+// sidebar link in the tour, add its href here. To drop one, remove it here (or
+// just remove the link above — steps for missing links are skipped). Order below
+// is the order the tour visits.
+const TOUR_DESCRIPTIONS = {
+  "/dashboard":
+    "Your home base — today's schedule, your streak, weight, and inventory at a glance.",
+  "/planner":
+    "Build your protocol here: pick peptides, doses, and how often, then save it as a schedule.",
+  "/inventory":
+    "Track your vials and supplies so you always know exactly what's on hand.",
+  "/log": "Record each injection. It updates your streak and draws down your inventory.",
+  "/progress":
+    "Log your weight and progress photos and watch the trend over time.",
+  "/insights":
+    "Charts and correlations that turn your logs into insight.",
+  "/report": "Generate a clean PDF summary to share with a doctor.",
+  "/peptides": "A reference encyclopedia for every peptide.",
+  "/settings":
+    "Your account, preferences, data export, and subscription live here.",
+};
+
+// Build the driver.js steps for a given nav container (desktop or mobile).
+// Steps are derived from `links` + TOUR_DESCRIPTIONS, so they can never point at
+// a link that no longer exists.
+function buildSteps(scopeSelector) {
+  const anchored = Object.keys(TOUR_DESCRIPTIONS)
+    .filter((href) => links.some((l) => l.href === href))
+    .map((href) => {
+      const link = links.find((l) => l.href === href);
+      return {
+        element: `${scopeSelector} [data-tour="${href}"]`,
+        popover: {
+          title: link.label,
+          description: TOUR_DESCRIPTIONS[href],
+          side: "right",
+          align: "start",
+        },
+      };
+    });
+
+  return [
+    {
+      popover: {
+        title: "Welcome to Peptide Tracker",
+        description:
+          "A quick tour so you know where everything lives. You can exit anytime with Esc or the X.",
+      },
+    },
+    ...anchored,
+    {
+      popover: {
+        title: "You're all set",
+        description:
+          "That's the tour. A good first move: add your peptides in Inventory, then build a protocol in the Planner.",
+      },
+    },
+  ];
+}
+
 // shared nav list (used by both the desktop sidebar and the mobile drawer)
 function NavList({ pathname, onNavigate }) {
   return (
@@ -44,6 +115,7 @@ function NavList({ pathname, onNavigate }) {
         <li key={link.href}>
           <Link
             href={link.href}
+            data-tour={link.href}
             onClick={onNavigate}
             className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm transition-colors ${
               pathname === link.href
@@ -60,10 +132,39 @@ function NavList({ pathname, onNavigate }) {
   );
 }
 
+// small "Take a tour" button used in both the desktop sidebar and mobile drawer
+function TourButton({ onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20"
+    >
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+        <line x1="12" y1="17" x2="12.01" y2="17" />
+      </svg>
+      <span>Take a tour</span>
+    </button>
+  );
+}
+
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const tourDoneRef = useRef(false);
 
   // close the drawer whenever the route changes
   useEffect(() => {
@@ -78,6 +179,94 @@ export default function Sidebar() {
     };
   }, [open]);
 
+  // ---- the guided tour ----
+  async function markTourDone() {
+    tourDoneRef.current = true;
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (session) {
+      await supabase
+        .from("profiles")
+        .update({ tour_completed: true })
+        .eq("id", session.user.id);
+    }
+  }
+
+  function startTour() {
+    const mobile =
+      typeof window !== "undefined" && window.innerWidth < 768;
+    const scope = mobile ? "#tour-nav-mobile" : "#tour-nav-desktop";
+
+    const run = () => {
+      const d = driver({
+        showProgress: true,
+        allowClose: true,
+        nextBtnText: "Next",
+        prevBtnText: "Back",
+        doneBtnText: "Done",
+        steps: buildSteps(scope),
+        onDestroyed: () => {
+          markTourDone();
+          if (mobile) setOpen(false);
+        },
+      });
+      d.drive();
+    };
+
+    if (mobile) {
+      setOpen(true); // reveal the drawer so its links can be highlighted
+      setTimeout(run, 400); // wait for the slide-in to settle
+    } else {
+      run();
+    }
+  }
+
+  // Auto-run the tour once, and let the onboarding pop-up trigger it.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function maybeAutoRun() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const { data } = await supabase
+        .from("profiles")
+        .select("tour_completed, onboarding_completed")
+        .eq("id", session.user.id)
+        .single();
+      if (cancelled || !data) return;
+
+      tourDoneRef.current = !!data.tour_completed;
+
+      // backup auto-start: finished onboarding, hasn't toured, on the dashboard
+      if (
+        !data.tour_completed &&
+        data.onboarding_completed &&
+        pathname === "/dashboard"
+      ) {
+        setTimeout(() => {
+          if (!cancelled && !tourDoneRef.current) startTour();
+        }, 900);
+      }
+    }
+    maybeAutoRun();
+
+    // the onboarding pop-up dispatches this when a new user finishes it
+    function onStartEvent() {
+      if (!tourDoneRef.current) startTour();
+    }
+    window.addEventListener("pt:start-tour", onStartEvent);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("pt:start-tour", onStartEvent);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function handleLogout() {
     await supabase.auth.signOut();
     router.push("/login");
@@ -85,13 +274,17 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* ---------- DESKTOP SIDEBAR (unchanged look) ---------- */}
+      {/* ---------- DESKTOP SIDEBAR ---------- */}
       <aside className="hidden md:flex w-64 min-h-screen bg-slate-900 border-r border-slate-800 flex-col">
         <div className="p-6 border-b border-slate-800">
           <span className="text-white font-bold text-xl">Peptide Tracker</span>
         </div>
 
-        <nav className="flex-1 p-4">
+        <div className="px-4 pt-4">
+          <TourButton onClick={startTour} />
+        </div>
+
+        <nav id="tour-nav-desktop" className="flex-1 p-4">
           <NavList pathname={pathname} />
         </nav>
 
@@ -171,7 +364,11 @@ export default function Sidebar() {
           </button>
         </div>
 
-        <nav className="flex-1 p-4 overflow-y-auto">
+        <div className="px-4 pt-4">
+          <TourButton onClick={startTour} />
+        </div>
+
+        <nav id="tour-nav-mobile" className="flex-1 p-4 overflow-y-auto">
           <NavList pathname={pathname} onNavigate={() => setOpen(false)} />
         </nav>
 

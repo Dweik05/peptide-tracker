@@ -763,26 +763,11 @@ export default function Log() {
                 <BodyDiagram selectedPoint={diagramSite} onSelectPoint={setDiagramSite} />
               ) : (
                 <div className="bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-5 text-center">
-                  <p className="text-sm text-white font-medium">
-                    The body-diagram picker is a premium feature
-                  </p>
-                  <p className="text-sm text-slate-400 mt-1">
-                    Upgrade to tap a body map to log your site — or switch to the dropdown, which is always free.
-                  </p>
+                  <p className="text-sm text-white font-medium">The body-diagram picker is a premium feature</p>
+                  <p className="text-sm text-slate-400 mt-1">Upgrade to tap a body map to log your site — or switch to the dropdown, which is always free.</p>
                   <div className="flex flex-wrap justify-center gap-2 mt-4">
-                    <a
-                      href="/pricing"
-                      className="bg-emerald-500 hover:bg-emerald-600 text-emerald-950 text-sm font-semibold px-5 py-2 rounded-lg"
-                    
-                      See plans
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => setSiteMode("dropdown")}
-                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold px-5 py-2 rounded-lg border border-slate-700"
-                    >
-                      Use the dropdown
-                    </button>
+                    <a href="/pricing" className="bg-emerald-500 hover:bg-emerald-600 text-emerald-950 text-sm font-semibold px-5 py-2 rounded-lg">See plans</a>
+                    <button type="button" onClick={() => setSiteMode("dropdown")} className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold px-5 py-2 rounded-lg border border-slate-700">Use the dropdown</button>
                   </div>
                 </div>
               )}
