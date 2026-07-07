@@ -21,7 +21,8 @@ import { deductFromInventory } from "../../lib/inventory-helpers";
 import MiniCalendar from "../../components/MiniCalendar";
 import OnboardingChecklist from "../../components/OnboardingChecklist";
 import { isDoseDay, toDateString, dateFromString, doseOnDate } from "../../lib/schedule-helpers";
-
+import OnboardingChecklist from "../../components/OnboardingChecklist";
+import OnboardingModal from "../../components/OnboardingModal";
 const LOW_STOCK_PERCENT = 20;
 
 // ---------------- icons (cohesive line set, replaces emoji) ----------------
@@ -677,6 +678,9 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 md:p-8 max-w-6xl space-y-6">
+      {/* ---------- first-run goals pop-up (overlay; self-gating) ---------- */}
+      <OnboardingModal />
+
       {/* ---------- greeting header ---------- */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
