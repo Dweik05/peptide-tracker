@@ -46,6 +46,7 @@ import {
 } from "../../lib/sites";
 import { deductFromInventory } from "../../lib/inventory-helpers";
 import StackSummary from "../../components/StackSummary";
+import { hasPremiumAccess } from "../../lib/access";
 
 // ---------------- icons (cohesive line set, replaces emoji) ----------------
 function Icon({ name, className = "w-4 h-4" }) {
@@ -381,6 +382,7 @@ export default function Log() {
   const [error, setError] = useState("");
   const [recentLogs, setRecentLogs] = useState([]);
   const [siteMode, setSiteMode] = useState("dropdown");
+  const [isPremium, setIsPremium] = useState(false);
   const [sessionDebug, setSessionDebug] = useState("");
 
   // rotation map data
@@ -412,6 +414,14 @@ export default function Log() {
       }
       setUser(session.user);
       setSessionDebug(`User ID: ${session.user.id.substring(0, 8)}...`);
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("subscription_status, subscription_end_date")
+        .eq("id", session.user.id)
+        .maybeSingle();
+      setIsPremium(hasPremiumAccess(profile));
+
       await Promise.all([
         fetchRecentLogs(session.user.id),
         fetchSiteHistory(session.user.id),
@@ -749,8 +759,32 @@ export default function Log() {
                     />
                   )}
                 </div>
-              ) : (
+              ) :  isPremium ? (
                 <BodyDiagram selectedPoint={diagramSite} onSelectPoint={setDiagramSite} />
+              ) : (
+                <div className="bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-5 text-center">
+                  <p className="text-sm text-white font-medium">
+                    The body-diagram picker is a premium feature
+                  </p>
+                  <p className="text-sm text-slate-400 mt-1">
+                    Upgrade to tap a body map to log your site — or switch to the dropdown, which is always free.
+                  </p>
+                  <div className="flex flex-wrap justify-center gap-2 mt-4">
+                    <a
+                      href="/pricing"
+                      className="bg-emerald-500 hover:bg-emerald-600 text-emerald-950 text-sm font-semibold px-5 py-2 rounded-lg"
+                    
+                      See plans
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => setSiteMode("dropdown")}
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold px-5 py-2 rounded-lg border border-slate-700"
+                    >
+                      Use the dropdown
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
 

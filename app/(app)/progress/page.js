@@ -1608,7 +1608,7 @@ async function fetchProfilePrefs(uid) {
                       photos used.
                     </p>
                     {photos.length >= FREE_PHOTO_LIMIT && (
-                      
+                      <a
                         href="/pricing"
                         className="block mt-1 text-emerald-400 hover:text-emerald-300 font-medium"
                       >
