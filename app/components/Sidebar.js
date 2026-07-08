@@ -29,19 +29,23 @@ import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import { supabase } from "../lib/supabase";
 
+// Order = the rough sequence a new user should work through: get set up
+// (inventory -> protocol -> log -> progress), then track, analyze, reference,
+// and shop. Reorder freely — the nav renders in exactly this order.
 const links = [
   { href: "/dashboard", label: "Dashboard", icon: "🏠" },
-  { href: "/planner", label: "Planner", icon: "🧮", peptideOnly: true },
   { href: "/inventory", label: "Inventory", icon: "📦", peptideOnly: true },
+  { href: "/planner", label: "Planner", icon: "🧮", peptideOnly: true },
   { href: "/log", label: "Log Dose", icon: "💉", peptideOnly: true },
-  { href: "/calendar", label: "Calendar", icon: "📅", peptideOnly: true },
   { href: "/progress", label: "Progress", icon: "📊" },
-  { href: "/insights", label: "Insights", icon: "🎯", peptideOnly: true },
-  { href: "/report", label: "Doctor Report", icon: "📄", peptideOnly: true },
+  { href: "/calendar", label: "Calendar", icon: "📅", peptideOnly: true },
   { href: "/goals", label: "Goals & Streaks", icon: "🏆" },
+  { href: "/insights", label: "Insights", icon: "🎯", peptideOnly: true },
   { href: "/lab-results", label: "Lab Results", icon: "🧪", peptideOnly: true },
   { href: "/side-effects", label: "Side Effects", icon: "⚠️", peptideOnly: true },
+  { href: "/report", label: "Doctor Report", icon: "📄", peptideOnly: true },
   { href: "/peptides", label: "Peptide Encyclopedia", icon: "📚", peptideOnly: true },
+  { href: "/supplies", label: "Supplies", icon: "🛒", peptideOnly: true },
   { href: "/settings", label: "Settings", icon: "⚙️" },
 ];
 
@@ -51,10 +55,10 @@ const links = [
 const TOUR_DESCRIPTIONS = {
   "/dashboard":
     "Your home base — today's activity, your streak, and your weight at a glance.",
-  "/planner":
-    "Build your protocol here: pick peptides, doses, and how often, then save it as a schedule.",
   "/inventory":
     "Track your vials and supplies so you always know exactly what's on hand.",
+  "/planner":
+    "Build your protocol here: pick peptides, doses, and how often, then save it as a schedule.",
   "/log": "Record each injection. It updates your streak and draws down your inventory.",
   "/progress":
     "Log your weight and progress photos and watch the trend over time.",
