@@ -21,7 +21,6 @@ import { deductFromInventory } from "../../lib/inventory-helpers";
 import MiniCalendar from "../../components/MiniCalendar";
 import OnboardingChecklist from "../../components/OnboardingChecklist";
 import { isDoseDay, toDateString, dateFromString, doseOnDate } from "../../lib/schedule-helpers";
-import OnboardingChecklist from "../../components/OnboardingChecklist";
 import OnboardingModal from "../../components/OnboardingModal";
 const LOW_STOCK_PERCENT = 20;
 
