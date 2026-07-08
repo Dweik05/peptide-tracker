@@ -1,26 +1,24 @@
 "use client";
 
 // ============================================================
-// SIDEBAR (v10 — with guided tour)  —  goes in: app/components/Sidebar.js
-// (FULL REPLACEMENT of v9.)
+// SIDEBAR (v11 — peptide / non-peptide aware)  —  app/components/Sidebar.js
+// (FULL REPLACEMENT of v10.)
 //
-// Everything from v9 is unchanged: desktop sidebar, mobile hamburger drawer,
-// shared NavList, logout. NEW in v10: a guided site tour (driver.js).
+// Everything from v10 is unchanged (desktop sidebar, mobile drawer, guided
+// tour, logout). NEW in v11: the nav respects profiles.uses_peptides.
 //
-//   • A "Take a tour" button in both the desktop sidebar and the mobile drawer.
-//   • The tour walks down the nav, highlighting each section with a one-liner.
-//   • On mobile it opens the drawer first, then tours the drawer links.
-//   • It auto-runs ONCE: the onboarding pop-up fires a `pt:start-tour` event
-//     when a new user finishes it, and as a backup it auto-starts on the
-//     dashboard for anyone who finished onboarding but hasn't toured yet.
-//   • Finishing or closing the tour sets profiles.tour_completed = true.
+//   • Links flagged `peptideOnly: true` are hidden for users who aren't on
+//     peptides, so a weight-loss-only user gets a focused nav.
+//   • The tour follows whatever links are actually on screen (it filters to
+//     steps whose element exists in the DOM), so non-peptide users get a
+//     shorter tour of just their features — no dangling steps.
 //
-// The tour steps are GENERATED FROM the `links` array + a descriptions map, so
-// the tour stays in sync with the sidebar automatically: remove a link and its
-// step disappears; add a link and you just drop one line in TOUR_DESCRIPTIONS.
+// To move a link between "everyone" and "peptide users only", just add or
+// remove `peptideOnly: true` on it below. (Nothing else needs changing — the
+// nav and the tour both derive from this one list.)
 //
-// Requires:  npm install driver.js   and a `tour_completed` column on profiles.
-// If Next complains about the CSS import below, move that one import line to
+// Requires:  npm install driver.js  and a `tour_completed` column on profiles.
+// If Next complains about the CSS import, move that one import line to
 // app/layout.js instead.
 // ============================================================
 
@@ -33,27 +31,26 @@ import { supabase } from "../lib/supabase";
 
 const links = [
   { href: "/dashboard", label: "Dashboard", icon: "🏠" },
-  { href: "/planner", label: "Planner", icon: "🧮" },
-  { href: "/inventory", label: "Inventory", icon: "📦" },
-  { href: "/log", label: "Log Dose", icon: "💉" },
-  { href: "/calendar", label: "Calendar", icon: "📅" },
+  { href: "/planner", label: "Planner", icon: "🧮", peptideOnly: true },
+  { href: "/inventory", label: "Inventory", icon: "📦", peptideOnly: true },
+  { href: "/log", label: "Log Dose", icon: "💉", peptideOnly: true },
+  { href: "/calendar", label: "Calendar", icon: "📅", peptideOnly: true },
   { href: "/progress", label: "Progress", icon: "📊" },
-  { href: "/insights", label: "Insights", icon: "🎯" },
-  { href: "/report", label: "Doctor Report", icon: "📄" },
+  { href: "/insights", label: "Insights", icon: "🎯", peptideOnly: true },
+  { href: "/report", label: "Doctor Report", icon: "📄", peptideOnly: true },
   { href: "/goals", label: "Goals & Streaks", icon: "🏆" },
-  { href: "/lab-results", label: "Lab Results", icon: "🧪" },
-  { href: "/side-effects", label: "Side Effects", icon: "⚠️" },
-  { href: "/peptides", label: "Peptide Encyclopedia", icon: "📚" },
+  { href: "/lab-results", label: "Lab Results", icon: "🧪", peptideOnly: true },
+  { href: "/side-effects", label: "Side Effects", icon: "⚠️", peptideOnly: true },
+  { href: "/peptides", label: "Peptide Encyclopedia", icon: "📚", peptideOnly: true },
   { href: "/settings", label: "Settings", icon: "⚙️" },
 ];
 
-// One line per section the tour should cover, keyed by href. To include a new
-// sidebar link in the tour, add its href here. To drop one, remove it here (or
-// just remove the link above — steps for missing links are skipped). Order below
-// is the order the tour visits.
+// One line per section the tour should cover, keyed by href, in visit order.
+// Steps whose link isn't currently on screen are skipped automatically, so
+// this list can safely include peptide-only sections.
 const TOUR_DESCRIPTIONS = {
   "/dashboard":
-    "Your home base — today's schedule, your streak, weight, and inventory at a glance.",
+    "Your home base — today's activity, your streak, and your weight at a glance.",
   "/planner":
     "Build your protocol here: pick peptides, doses, and how often, then save it as a schedule.",
   "/inventory":
@@ -61,8 +58,8 @@ const TOUR_DESCRIPTIONS = {
   "/log": "Record each injection. It updates your streak and draws down your inventory.",
   "/progress":
     "Log your weight and progress photos and watch the trend over time.",
-  "/insights":
-    "Charts and correlations that turn your logs into insight.",
+  "/goals": "Set goals and keep your logging streak alive.",
+  "/insights": "Charts and correlations that turn your logs into insight.",
   "/report": "Generate a clean PDF summary to share with a doctor.",
   "/peptides": "A reference encyclopedia for every peptide.",
   "/settings":
@@ -70,15 +67,23 @@ const TOUR_DESCRIPTIONS = {
 };
 
 // Build the driver.js steps for a given nav container (desktop or mobile).
-// Steps are derived from `links` + TOUR_DESCRIPTIONS, so they can never point at
-// a link that no longer exists.
+// We keep only steps whose target element is actually rendered right now, so
+// the tour matches what the user sees (peptide vs non-peptide) with no dangling
+// steps pointing at links that aren't there.
 function buildSteps(scopeSelector) {
   const anchored = Object.keys(TOUR_DESCRIPTIONS)
-    .filter((href) => links.some((l) => l.href === href))
-    .map((href) => {
+    .map((href) => ({
+      href,
+      selector: `${scopeSelector} [data-tour="${href}"]`,
+    }))
+    .filter(
+      ({ selector }) =>
+        typeof document !== "undefined" && document.querySelector(selector)
+    )
+    .map(({ href, selector }) => {
       const link = links.find((l) => l.href === href);
       return {
-        element: `${scopeSelector} [data-tour="${href}"]`,
+        element: selector,
         popover: {
           title: link.label,
           description: TOUR_DESCRIPTIONS[href],
@@ -101,17 +106,17 @@ function buildSteps(scopeSelector) {
       popover: {
         title: "You're all set",
         description:
-          "That's the tour. A good first move: add your peptides in Inventory, then build a protocol in the Planner.",
+          "That's the tour. A good first move: fill in the \"Get started\" checklist on your dashboard.",
       },
     },
   ];
 }
 
 // shared nav list (used by both the desktop sidebar and the mobile drawer)
-function NavList({ pathname, onNavigate }) {
+function NavList({ items, pathname, onNavigate }) {
   return (
     <ul className="space-y-1">
-      {links.map((link) => (
+      {items.map((link) => (
         <li key={link.href}>
           <Link
             href={link.href}
@@ -164,7 +169,13 @@ export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [usesPeptides, setUsesPeptides] = useState(true);
   const tourDoneRef = useRef(false);
+
+  // which links to show for this user
+  const visibleLinks = usesPeptides
+    ? links
+    : links.filter((l) => !l.peptideOnly);
 
   // close the drawer whenever the route changes
   useEffect(() => {
@@ -222,11 +233,12 @@ export default function Sidebar() {
     }
   }
 
-  // Auto-run the tour once, and let the onboarding pop-up trigger it.
+  // Fetch the user's mode + tour state; auto-run the tour once; and let the
+  // onboarding pop-up trigger it.
   useEffect(() => {
     let cancelled = false;
 
-    async function maybeAutoRun() {
+    async function init() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -234,11 +246,12 @@ export default function Sidebar() {
 
       const { data } = await supabase
         .from("profiles")
-        .select("tour_completed, onboarding_completed")
+        .select("tour_completed, onboarding_completed, uses_peptides")
         .eq("id", session.user.id)
         .single();
       if (cancelled || !data) return;
 
+      setUsesPeptides(data.uses_peptides ?? true);
       tourDoneRef.current = !!data.tour_completed;
 
       // backup auto-start: finished onboarding, hasn't toured, on the dashboard
@@ -252,7 +265,7 @@ export default function Sidebar() {
         }, 900);
       }
     }
-    maybeAutoRun();
+    init();
 
     // the onboarding pop-up dispatches this when a new user finishes it
     function onStartEvent() {
@@ -285,7 +298,7 @@ export default function Sidebar() {
         </div>
 
         <nav id="tour-nav-desktop" className="flex-1 p-4">
-          <NavList pathname={pathname} />
+          <NavList items={visibleLinks} pathname={pathname} />
         </nav>
 
         <div className="p-4 border-t border-slate-800">
@@ -369,7 +382,11 @@ export default function Sidebar() {
         </div>
 
         <nav id="tour-nav-mobile" className="flex-1 p-4 overflow-y-auto">
-          <NavList pathname={pathname} onNavigate={() => setOpen(false)} />
+          <NavList
+            items={visibleLinks}
+            pathname={pathname}
+            onNavigate={() => setOpen(false)}
+          />
         </nav>
 
         <div className="p-4 border-t border-slate-800">
