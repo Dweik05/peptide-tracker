@@ -121,6 +121,34 @@ function syncFields(sealed, openVials, size) {
   };
 }
 
+// A labelled progress bar: small label (+ optional sub-note) and value on top,
+// bar below. Used for the total + per-open-vial rows in the collapsed card.
+function StatBar({ label, sub, subStale, value, pct, tone }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2 text-xs mb-1">
+        <span className="text-slate-500 truncate">
+          {label}
+          {sub ? (
+            <span className={subStale ? "text-amber-400" : "text-slate-600"}>
+              {sub}
+            </span>
+          ) : null}
+        </span>
+        <span className="text-slate-400 whitespace-nowrap">{value}</span>
+      </div>
+      <div className="w-full bg-slate-800 rounded-full h-2">
+        <div
+          className={`h-2 rounded-full ${
+            tone === "red" ? "bg-red-500" : "bg-emerald-500"
+          }`}
+          style={{ width: `${pct}%` }}
+        ></div>
+      </div>
+    </div>
+  );
+}
+
 const inputClasses =
   "w-full bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-700 focus:border-emerald-500 focus:outline-none placeholder:text-slate-500";
 
@@ -448,14 +476,6 @@ export default function InventoryPage() {
     const percentOverall =
       total > 0 ? Math.max(0, Math.min(100, (remaining / total) * 100)) : 0;
 
-    // oldest known open-vial age, for the collapsed summary line
-    let oldestAge = null;
-    for (const v of openVials) {
-      const d = daysSince(v.opened_at);
-      if (d !== null && (oldestAge === null || d > oldestAge)) oldestAge = d;
-    }
-    const oldestStale = oldestAge !== null && oldestAge > STALE_OPEN_DAYS;
-
     return (
       <div
         key={item.id}
@@ -465,19 +485,14 @@ export default function InventoryPage() {
       >
         {/* header */}
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold text-white">
-              {item.peptide_name}
-              {isLow && (
-                <span className="ml-2 text-xs font-semibold bg-red-500/10 border border-red-500/20 text-red-400 rounded-md px-2 py-0.5 align-middle">
-                  LOW STOCK
-                </span>
-              )}
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {cleanNum(remaining)} of {cleanNum(total)} {item.unit} total
-            </p>
-          </div>
+          <h2 className="text-lg font-semibold text-white">
+            {item.peptide_name}
+            {isLow && (
+              <span className="ml-2 text-xs font-semibold bg-red-500/10 border border-red-500/20 text-red-400 rounded-md px-2 py-0.5 align-middle">
+                LOW STOCK
+              </span>
+            )}
+          </h2>
           <button
             type="button"
             onClick={() => setEditingId(editing ? null : item.id)}
@@ -503,37 +518,53 @@ export default function InventoryPage() {
           </button>
         </div>
 
-        {/* overall stock bar */}
-        <div className="w-full bg-slate-800 rounded-full h-2 mt-3">
-          <div
-            className={`h-2 rounded-full ${isLow ? "bg-red-500" : "bg-emerald-500"}`}
-            style={{ width: `${percentOverall}%` }}
-          ></div>
-        </div>
-
         {!editing ? (
           // ===================== SIMPLE VIEW =====================
           <>
             {hasVials ? (
-              <p className="text-sm text-slate-400 mt-3">
-                {openVials.length === 0
-                  ? `${sealed} sealed ${unitWord}${sealed === 1 ? "" : "s"}`
-                  : openVials.length === 1
-                  ? `Open ${cleanNum(openVials[0].remaining)}/${cleanNum(size)} ${item.unit} · ${sealed} sealed`
-                  : `${openVials.length} open ${unitWord}s · ${sealed} sealed`}
-                {oldestAge !== null && (
-                  <span className={oldestStale ? "text-amber-400" : "text-slate-500"}>
-                    {" · "}
-                    {openVials.length > 1 ? "oldest " : ""}
-                    {openedAgeText(oldestAge)}
-                  </span>
-                )}
-              </p>
+              <div className="mt-3 space-y-2.5">
+                {/* absolute total */}
+                <StatBar
+                  label="Total"
+                  value={`${cleanNum(remaining)}/${cleanNum(total)} ${item.unit}`}
+                  pct={percentOverall}
+                  tone={isLow ? "red" : "emerald"}
+                />
+                {/* one bar per open vial */}
+                {openVials.map((v, i) => {
+                  const vr = parseFloat(v.remaining) || 0;
+                  const pct =
+                    size > 0 ? Math.max(0, Math.min(100, (vr / size) * 100)) : 0;
+                  const age = daysSince(v.opened_at);
+                  const stale = age !== null && age > STALE_OPEN_DAYS;
+                  return (
+                    <StatBar
+                      key={i}
+                      label={
+                        openVials.length > 1 ? `Open vial ${i + 1}` : "Open vial"
+                      }
+                      sub={age !== null ? ` · ${openedAgeText(age)}` : ""}
+                      subStale={stale}
+                      value={`${cleanNum(vr)}/${cleanNum(size)} ${item.unit}`}
+                      pct={pct}
+                      tone="emerald"
+                    />
+                  );
+                })}
+                <p className="text-xs text-slate-500">
+                  {sealed} sealed {unitWord}
+                  {sealed === 1 ? "" : "s"}
+                </p>
+              </div>
             ) : (
-              <p className="text-sm text-slate-500 mt-3">
-                {cleanNum(remaining)} of {cleanNum(total)} {item.unit} remaining (
-                {stats.percentRemaining.toFixed(0)}%)
-              </p>
+              <div className="mt-3">
+                <StatBar
+                  label="Remaining"
+                  value={`${cleanNum(remaining)}/${cleanNum(total)} ${item.unit}`}
+                  pct={percentOverall}
+                  tone={isLow ? "red" : "emerald"}
+                />
+              </div>
             )}
 
             {!isBac && (
@@ -576,6 +607,16 @@ export default function InventoryPage() {
         ) : (
           // ===================== EDIT VIEW =====================
           <>
+            <p className="text-xs text-slate-500 mt-1">
+              {cleanNum(remaining)} of {cleanNum(total)} {item.unit} total
+            </p>
+            <div className="w-full bg-slate-800 rounded-full h-2 mt-2">
+              <div
+                className={`h-2 rounded-full ${isLow ? "bg-red-500" : "bg-emerald-500"}`}
+                style={{ width: `${percentOverall}%` }}
+              ></div>
+            </div>
+
             {hasVials ? (
               <>
                 <div className="mt-4">
