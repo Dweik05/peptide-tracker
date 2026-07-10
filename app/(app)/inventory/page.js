@@ -1,13 +1,22 @@
 "use client";
 
 // ============================================================
-// INVENTORY PAGE (v4 — reskinned)  —  goes in:  app/(app)/inventory/page.js
+// INVENTORY PAGE (v5 — explicit open vials)  —  app/(app)/inventory/page.js
 //
-// Same Inventory page, restyled to the new design system:
-// metric-style summary cards, cohesive line icons in place of
-// emoji, and dark text on the emerald buttons for legibility.
-// All logic (vial math, per-item stats, fetch, save, delete) is
-// unchanged — only the markup changed.
+// The open vial(s) are now REAL, dated things instead of derived math.
+// Each product reads two new columns: sealed_vials (count of unopened) and
+// open_vials (a list of { remaining, opened_at }). quantity_remaining and
+// quantity_total are kept in sync as mirrors, so the dashboard is untouched.
+//
+// New per-product controls:
+//   • Open a vial      -> moves a sealed vial into the open list, dated today
+//                         (capped at 3 open vials)
+//   • - / + sealed     -> give one away / add one without deleting the item
+//   • Discard (per open vial) -> write off that partial vial
+//   • Opened date      -> editable per open vial, with "opened N days ago"
+//
+// Rows with no vial_size (legacy) fall back to a simple remaining/total view.
+// All other logic (fetch, add, delete, dose-history stats) is unchanged.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -22,8 +31,10 @@ import {
 import StackSummary from "../../components/StackSummary";
 
 const LOW_STOCK_PERCENT = 20;
+const MAX_OPEN_VIALS = 3;
+const STALE_OPEN_DAYS = 28; // gently flag vials open longer than this
 
-// ---------------- icons (cohesive line set, replaces emoji) ----------------
+// ---------------- icons ----------------
 function Icon({ name, className = "w-4 h-4" }) {
   const stroke = {
     fill: "none",
@@ -49,8 +60,7 @@ function Icon({ name, className = "w-4 h-4" }) {
   );
 }
 
-// ---------------- helper functions ----------------
-
+// ---------------- helpers ----------------
 function getTodayString() {
   const now = new Date();
   const year = now.getFullYear();
@@ -76,19 +86,46 @@ function cleanNum(n) {
   return parseFloat(parseFloat(n).toFixed(3)).toString();
 }
 
-// derive the open-vial / unopened-vial split from the running
-// total. Returns null when there's no vial_size (old rows).
-function vialBreakdown(item) {
-  const size = parseFloat(item.vial_size);
-  const remaining = parseFloat(item.quantity_remaining);
-  if (!size || size <= 0 || isNaN(remaining)) return null;
-  const unopened = Math.floor((remaining + 1e-9) / size);
-  const open = Math.max(0, remaining - unopened * size);
-  return { size, remaining, unopened, open };
+function round4(n) {
+  return parseFloat(parseFloat(n).toFixed(4));
+}
+
+// whole days since a "YYYY-MM-DD" date, or null
+function daysSince(dateStr) {
+  if (!dateStr) return null;
+  const safe = dateStr.length === 10 ? `${dateStr}T12:00:00` : dateStr;
+  const then = new Date(safe);
+  if (isNaN(then.getTime())) return null;
+  const ms = Date.now() - then.getTime();
+  return Math.max(0, Math.floor(ms / 86400000));
+}
+
+function openedAgeText(days) {
+  if (days === null) return "";
+  if (days === 0) return "opened today";
+  if (days === 1) return "opened 1 day ago";
+  return `opened ${days} days ago`;
+}
+
+// Recompute the mirror fields from the source of truth (sealed + open list).
+function syncFields(sealed, openVials, size) {
+  const openSum = openVials.reduce(
+    (sum, v) => sum + (parseFloat(v.remaining) || 0),
+    0
+  );
+  const totalVials = sealed + openVials.length;
+  return {
+    quantity_remaining: round4(sealed * size + openSum),
+    quantity_total: round4(totalVials * size),
+    vial_count: totalVials,
+  };
 }
 
 const inputClasses =
   "w-full bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-700 focus:border-emerald-500 focus:outline-none placeholder:text-slate-500";
+
+const stepBtn =
+  "w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 flex items-center justify-center text-lg leading-none";
 
 export default function InventoryPage() {
   const router = useRouter();
@@ -101,7 +138,7 @@ export default function InventoryPage() {
   const [doses, setDoses] = useState([]);
 
   // form fields
-  const [itemType, setItemType] = useState("peptide"); // peptide | bac_water
+  const [itemType, setItemType] = useState("peptide");
   const [peptideName, setPeptideName] = useState("");
   const [vialSize, setVialSize] = useState("");
   const [vialCount, setVialCount] = useState("1");
@@ -115,7 +152,7 @@ export default function InventoryPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // ---------- load session + data ----------
+  // ---------- load ----------
   useEffect(() => {
     async function init() {
       const {
@@ -171,7 +208,7 @@ export default function InventoryPage() {
     }
   }
 
-  // ---------- save a new product ----------
+  // ---------- add a new product ----------
   async function handleSaveItem() {
     setError("");
     setSuccess("");
@@ -227,8 +264,10 @@ export default function InventoryPage() {
       item_type: itemType,
       vial_size: sizeNumber,
       vial_count: countNumber,
+      sealed_vials: countNumber, // everything starts sealed
+      open_vials: [], // nothing open yet
       quantity_total: totalAmount,
-      quantity_remaining: totalAmount, // starts full (all vials sealed)
+      quantity_remaining: totalAmount,
       unit: unit,
       cost: costNumber,
       purchase_date: purchaseDate || null,
@@ -278,7 +317,73 @@ export default function InventoryPage() {
     }
   }
 
-  // ---------- per-product math from real dose history ----------
+  // ---------- vial operations (write sealed_vials + open_vials, sync mirrors) ----------
+  async function updateVials(item, newSealed, newOpenVials) {
+    const size = parseFloat(item.vial_size);
+    const synced = syncFields(newSealed, newOpenVials, size);
+    const patch = {
+      sealed_vials: newSealed,
+      open_vials: newOpenVials,
+      ...synced,
+    };
+
+    // optimistic local update
+    setItems((prev) =>
+      prev.map((i) => (i.id === item.id ? { ...i, ...patch } : i))
+    );
+    setError("");
+
+    const { error: updErr } = await supabase
+      .from("inventory")
+      .update(patch)
+      .eq("id", item.id)
+      .eq("user_id", userId);
+
+    if (updErr) {
+      setError(`Couldn't update "${item.peptide_name}": ${updErr.message}`);
+      fetchInventory(userId); // revert to server truth
+    }
+  }
+
+  function adjustSealed(item, delta) {
+    const current = item.sealed_vials ?? 0;
+    const next = Math.max(0, current + delta);
+    if (next === current) return;
+    updateVials(item, next, Array.isArray(item.open_vials) ? item.open_vials : []);
+  }
+
+  function openAVial(item) {
+    const sealed = item.sealed_vials ?? 0;
+    const open = Array.isArray(item.open_vials) ? item.open_vials : [];
+    if (sealed < 1 || open.length >= MAX_OPEN_VIALS) return;
+    const size = parseFloat(item.vial_size);
+    const newOpen = [...open, { remaining: size, opened_at: today }];
+    updateVials(item, sealed - 1, newOpen);
+  }
+
+  function discardOpenVial(item, index) {
+    const open = Array.isArray(item.open_vials) ? item.open_vials : [];
+    const target = open[index];
+    if (!target) return;
+    const sure = window.confirm(
+      `Discard this open vial? Its remaining ${cleanNum(target.remaining)} ${
+        item.unit
+      } will be written off and can't be recovered.`
+    );
+    if (!sure) return;
+    const newOpen = open.filter((_, i) => i !== index);
+    updateVials(item, item.sealed_vials ?? 0, newOpen);
+  }
+
+  function setOpenedDate(item, index, date) {
+    const open = Array.isArray(item.open_vials) ? item.open_vials : [];
+    const newOpen = open.map((v, i) =>
+      i === index ? { ...v, opened_at: date || null } : v
+    );
+    updateVials(item, item.sealed_vials ?? 0, newOpen);
+  }
+
+  // ---------- per-product stats from dose history ----------
   function statsForItem(item) {
     const total = parseFloat(item.quantity_total);
     const remaining = parseFloat(item.quantity_remaining);
@@ -327,23 +432,267 @@ export default function InventoryPage() {
     return { percentRemaining, daysLeft, dosesLeft, costPerDose };
   }
 
-  // split peptides from bac water (old rows: null type = peptide)
+  // ---------- one card renderer, used for peptides and bac water ----------
+  function renderVialCard(item, isBac) {
+    const size = parseFloat(item.vial_size);
+    const hasVials = size && size > 0;
+    const total = parseFloat(item.quantity_total);
+    const remaining = parseFloat(item.quantity_remaining);
+    const stats = statsForItem(item);
+    const isLow = !isBac && stats.percentRemaining <= LOW_STOCK_PERCENT;
+    const openVials = Array.isArray(item.open_vials) ? item.open_vials : [];
+    const sealed = item.sealed_vials ?? 0;
+    const unitWord = isBac ? "bottle" : "vial";
+    const percentOverall =
+      total > 0 ? Math.max(0, Math.min(100, (remaining / total) * 100)) : 0;
+
+    return (
+      <div
+        key={item.id}
+        className={`bg-slate-900 border rounded-xl p-6 ${
+          isLow ? "border-red-500/40" : "border-slate-800"
+        }`}
+      >
+        {/* header */}
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-white">
+              {item.peptide_name}
+              {isLow && (
+                <span className="ml-2 text-xs font-semibold bg-red-500/10 border border-red-500/20 text-red-400 rounded-md px-2 py-0.5 align-middle">
+                  LOW STOCK
+                </span>
+              )}
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {cleanNum(remaining)} of {cleanNum(total)} {item.unit} total
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleDeleteItem(item.id)}
+            className="text-slate-500 hover:text-red-400"
+            title="Delete product"
+          >
+            <Icon name="close" className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* overall stock bar */}
+        <div className="w-full bg-slate-800 rounded-full h-2 mt-3">
+          <div
+            className={`h-2 rounded-full ${isLow ? "bg-red-500" : "bg-emerald-500"}`}
+            style={{ width: `${percentOverall}%` }}
+          ></div>
+        </div>
+
+        {hasVials ? (
+          <>
+            {/* open vials */}
+            <div className="mt-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2">
+                {openVials.length === 0
+                  ? `No open ${unitWord}s`
+                  : `Open ${unitWord}s (${openVials.length} of ${MAX_OPEN_VIALS})`}
+              </p>
+
+              {openVials.length > 0 && (
+                <div className="space-y-2">
+                  {openVials.map((v, i) => {
+                    const vRemaining = parseFloat(v.remaining) || 0;
+                    const pct =
+                      size > 0
+                        ? Math.max(0, Math.min(100, (vRemaining / size) * 100))
+                        : 0;
+                    const age = daysSince(v.opened_at);
+                    const stale = age !== null && age > STALE_OPEN_DAYS;
+                    return (
+                      <div
+                        key={i}
+                        className="bg-slate-800/50 border border-slate-700 rounded-lg p-3"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-sm text-white font-semibold">
+                            {cleanNum(vRemaining)}/{cleanNum(size)} {item.unit}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => discardOpenVial(item, i)}
+                            className="text-xs text-slate-500 hover:text-red-400"
+                          >
+                            Discard
+                          </button>
+                        </div>
+                        <div className="w-full bg-slate-700 rounded-full h-1.5 mt-2">
+                          <div
+                            className="h-1.5 rounded-full bg-emerald-500"
+                            style={{ width: `${pct}%` }}
+                          ></div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
+                          <span className="text-slate-500">Opened</span>
+                          <input
+                            type="date"
+                            value={v.opened_at || ""}
+                            max={today}
+                            onChange={(e) =>
+                              setOpenedDate(item, i, e.target.value)
+                            }
+                            className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300 [color-scheme:dark]"
+                          />
+                          {age !== null && (
+                            <span className={stale ? "text-amber-400" : "text-slate-500"}>
+                              {openedAgeText(age)}
+                              {stale ? " — check stability" : ""}
+                            </span>
+                          )}
+                          {age === null && (
+                            <span className="text-slate-600">set the date</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* sealed count + actions */}
+            <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-slate-400">
+                  Sealed {unitWord}s
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => adjustSealed(item, -1)}
+                    disabled={sealed <= 0}
+                    className={stepBtn}
+                    aria-label={`Remove one sealed ${unitWord}`}
+                  >
+                    −
+                  </button>
+                  <span className="text-white font-semibold w-6 text-center">
+                    {sealed}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => adjustSealed(item, 1)}
+                    className={stepBtn}
+                    aria-label={`Add one sealed ${unitWord}`}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => openAVial(item)}
+                disabled={sealed < 1 || openVials.length >= MAX_OPEN_VIALS}
+                className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-200 font-medium text-sm px-4 py-2 rounded-lg border border-slate-700"
+              >
+                Open a {unitWord}
+              </button>
+            </div>
+            {openVials.length >= MAX_OPEN_VIALS && (
+              <p className="text-xs text-slate-600 mt-1">
+                Max {MAX_OPEN_VIALS} open {unitWord}s — finish or discard one to
+                open another.
+              </p>
+            )}
+            {sealed < 1 && openVials.length < MAX_OPEN_VIALS && (
+              <p className="text-xs text-slate-600 mt-1">
+                No sealed {unitWord}s left to open.
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-slate-500 mt-3">
+            {cleanNum(remaining)} of {cleanNum(total)} {item.unit} remaining (
+            {stats.percentRemaining.toFixed(0)}%)
+          </p>
+        )}
+
+        {/* dose-history stats (peptides only) */}
+        {!isBac && (
+          <>
+            <div className="flex flex-wrap gap-x-5 gap-y-1 mt-4 text-sm">
+              <span>
+                <span className="text-slate-500">Days of supply </span>
+                <span className="text-white font-semibold">
+                  {stats.daysLeft !== null ? `~${stats.daysLeft}` : "—"}
+                </span>
+              </span>
+              <span>
+                <span className="text-slate-500">Doses left </span>
+                <span className="text-white font-semibold">
+                  {stats.dosesLeft !== null ? `~${stats.dosesLeft}` : "—"}
+                </span>
+              </span>
+              <span>
+                <span className="text-slate-500">Cost / dose </span>
+                <span className="text-white font-semibold">
+                  {stats.costPerDose !== null
+                    ? `$${stats.costPerDose.toFixed(2)}`
+                    : "—"}
+                </span>
+              </span>
+              {item.purchase_date && (
+                <span>
+                  <span className="text-slate-500">Bought </span>
+                  <span className="text-white font-semibold">
+                    {formatDate(item.purchase_date)}
+                  </span>
+                </span>
+              )}
+            </div>
+            {stats.daysLeft === null && stats.dosesLeft === null && (
+              <p className="text-xs text-slate-600 mt-2">
+                "Days of supply" and "Doses left" appear once you've logged doses
+                of "{item.peptide_name}" (with a compatible unit).
+              </p>
+            )}
+          </>
+        )}
+
+        {/* bac water: cost / bought line (no dose stats) */}
+        {isBac && (
+          <p className="text-xs text-slate-500 mt-3">
+            {item.cost !== null && item.cost !== undefined
+              ? `$${parseFloat(item.cost).toFixed(2)}`
+              : ""}
+            {item.cost !== null &&
+            item.cost !== undefined &&
+            item.purchase_date
+              ? " · "
+              : ""}
+            {item.purchase_date ? `Bought ${formatDate(item.purchase_date)}` : ""}
+          </p>
+        )}
+
+        {item.notes && (
+          <p className="text-sm text-slate-500 mt-2">{item.notes}</p>
+        )}
+      </div>
+    );
+  }
+
+  // ---------- derived lists ----------
   const peptideItems = items.filter(
     (i) => (i.item_type || "peptide") === "peptide"
   );
   const bacItems = items.filter((i) => i.item_type === "bac_water");
 
-  // sort peptides lowest-stock first
   const sortedPeptides = [...peptideItems].sort(
     (a, b) =>
       statsForItem(a).percentRemaining - statsForItem(b).percentRemaining
   );
 
-  // vial-size presets for the currently selected peptide (if any)
   const presets =
     itemType === "peptide" && peptideName ? VIAL_SIZES[peptideName] : null;
 
-  // summary numbers (peptides drive low-stock; spend covers all)
   const lowStockCount = peptideItems.filter(
     (item) => statsForItem(item).percentRemaining <= LOW_STOCK_PERCENT
   ).length;
@@ -357,7 +706,6 @@ export default function InventoryPage() {
   );
 
   // ---------- page ----------
-
   if (loading) {
     return (
       <div className="p-8">
@@ -368,7 +716,7 @@ export default function InventoryPage() {
 
   return (
     <div className="p-6 md:p-8 max-w-6xl space-y-6">
-      {/* ---------- header ---------- */}
+      {/* header */}
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-white">
           Inventory
@@ -378,7 +726,7 @@ export default function InventoryPage() {
         </p>
       </div>
 
-      {/* ---------- summary cards ---------- */}
+      {/* summary cards */}
       {items.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
@@ -414,11 +762,9 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {/* ================================================
-          SIDE-BY-SIDE: products (left) | add form (right)
-          ================================================ */}
+      {/* side-by-side */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        {/* ---------- LEFT COLUMN: stack + product cards ---------- */}
+        {/* LEFT: stack + product cards */}
         <div className="space-y-4">
           <StackSummary />
 
@@ -426,154 +772,13 @@ export default function InventoryPage() {
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
               <p className="text-slate-500">
                 Nothing tracked yet — add your first vials with the form. Every
-                dose you log subtracts from your stock automatically.
+                dose you log subtracts from your open vial automatically.
               </p>
             </div>
           ) : (
             <>
-              {sortedPeptides.map((item) => {
-                const stats = statsForItem(item);
-                const isLow = stats.percentRemaining <= LOW_STOCK_PERCENT;
-                const vb = vialBreakdown(item);
-                const total = parseFloat(item.quantity_total);
-                const remaining = parseFloat(item.quantity_remaining);
-                // The bar shows how full the CURRENT vial is (per-vial
-                // gauge): 9/10 mg open -> 90%. A fresh/unopened next vial
-                // reads full; empty reads 0. Old rows fall back to total %.
-                const openPct = vb
-                  ? vb.open > 0.0001
-                    ? (vb.open / vb.size) * 100
-                    : remaining > 0
-                    ? 100
-                    : 0
-                  : stats.percentRemaining;
+              {sortedPeptides.map((item) => renderVialCard(item, false))}
 
-                return (
-                  <div
-                    key={item.id}
-                    className={`bg-slate-900 border rounded-xl p-6 ${
-                      isLow ? "border-red-500/40" : "border-slate-800"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <h2 className="text-lg font-semibold text-white">
-                          {item.peptide_name}
-                          {isLow && (
-                            <span className="ml-2 text-xs font-semibold bg-red-500/10 border border-red-500/20 text-red-400 rounded-md px-2 py-0.5 align-middle">
-                              LOW STOCK
-                            </span>
-                          )}
-                        </h2>
-
-                        {vb ? (
-                          <>
-                            <p className="text-sm text-slate-300 mt-1">
-                              {vb.open > 0.0001 && (
-                                <>
-                                  Open vial:{" "}
-                                  <span className="text-white font-semibold">
-                                    {cleanNum(vb.open)}/{cleanNum(vb.size)}{" "}
-                                    {item.unit}
-                                  </span>{" "}
-                                  ·{" "}
-                                </>
-                              )}
-                              <span className="text-white font-semibold">
-                                {vb.unopened}
-                              </span>{" "}
-                              unopened {vb.unopened === 1 ? "vial" : "vials"}
-                            </p>
-                            <p className="text-xs text-slate-500 mt-0.5">
-                              {cleanNum(remaining)} of {cleanNum(total)}{" "}
-                              {item.unit} total
-                            </p>
-                          </>
-                        ) : (
-                          <p className="text-sm text-slate-400 mt-0.5">
-                            {remaining.toFixed(2)} of {total.toFixed(2)}{" "}
-                            {item.unit} remaining (
-                            {stats.percentRemaining.toFixed(0)}%)
-                          </p>
-                        )}
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteItem(item.id)}
-                        className="text-slate-500 hover:text-red-400"
-                        title="Delete product"
-                      >
-                        <Icon name="close" className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    {/* progress bar (overall stock) */}
-                    <div className="w-full bg-slate-800 rounded-full h-2 mt-3">
-                      <div
-                        className={`h-2 rounded-full ${
-                          isLow ? "bg-red-500" : "bg-emerald-500"
-                        }`}
-                        style={{
-                          width: `${Math.max(
-                            0,
-                            Math.min(100, openPct)
-                          )}%`,
-                        }}
-                      ></div>
-                    </div>
-
-                    {/* stats row */}
-                    <div className="flex flex-wrap gap-x-5 gap-y-1 mt-3 text-sm">
-                      <span>
-                        <span className="text-slate-500">Days left </span>
-                        <span className="text-white font-semibold">
-                          {stats.daysLeft !== null ? `~${stats.daysLeft}` : "—"}
-                        </span>
-                      </span>
-                      <span>
-                        <span className="text-slate-500">Doses left </span>
-                        <span className="text-white font-semibold">
-                          {stats.dosesLeft !== null
-                            ? `~${stats.dosesLeft}`
-                            : "—"}
-                        </span>
-                      </span>
-                      <span>
-                        <span className="text-slate-500">Cost / dose </span>
-                        <span className="text-white font-semibold">
-                          {stats.costPerDose !== null
-                            ? `$${stats.costPerDose.toFixed(2)}`
-                            : "—"}
-                        </span>
-                      </span>
-                      {item.purchase_date && (
-                        <span>
-                          <span className="text-slate-500">Bought </span>
-                          <span className="text-white font-semibold">
-                            {formatDate(item.purchase_date)}
-                          </span>
-                        </span>
-                      )}
-                    </div>
-
-                    {item.notes && (
-                      <p className="text-sm text-slate-500 mt-2">
-                        {item.notes}
-                      </p>
-                    )}
-
-                    {stats.daysLeft === null && stats.dosesLeft === null && (
-                      <p className="text-xs text-slate-600 mt-2">
-                        Estimates appear once you've logged doses of "
-                        {item.peptide_name}" (with a compatible unit).
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-
-              {/* ---------- bac water section ---------- */}
               {bacItems.length > 0 && (
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
                   <h2 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
@@ -583,63 +788,12 @@ export default function InventoryPage() {
                     />
                     Bacteriostatic water
                   </h2>
-                  <div className="space-y-3">
-                    {bacItems.map((item) => {
-                      const vb = vialBreakdown(item);
-                      const total = parseFloat(item.quantity_total);
-                      const remaining = parseFloat(item.quantity_remaining);
-                      return (
-                        <div
-                          key={item.id}
-                          className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 flex items-start justify-between gap-3"
-                        >
-                          <div>
-                            <p className="text-sm text-slate-300">
-                              {vb && vb.open > 0.0001 && (
-                                <>
-                                  Open bottle:{" "}
-                                  <span className="text-white font-semibold">
-                                    {cleanNum(vb.open)}/{cleanNum(vb.size)} mL
-                                  </span>{" "}
-                                  ·{" "}
-                                </>
-                              )}
-                              <span className="text-white font-semibold">
-                                {vb ? vb.unopened : "?"}
-                              </span>{" "}
-                              unopened{" "}
-                              {vb && vb.unopened === 1 ? "bottle" : "bottles"}
-                            </p>
-                            <p className="text-xs text-slate-500 mt-0.5">
-                              {cleanNum(remaining)} of {cleanNum(total)} mL total
-                              {item.cost !== null && item.cost !== undefined
-                                ? ` · $${parseFloat(item.cost).toFixed(2)}`
-                                : ""}
-                              {item.purchase_date
-                                ? ` · ${formatDate(item.purchase_date)}`
-                                : ""}
-                            </p>
-                            {item.notes && (
-                              <p className="text-xs text-slate-500 mt-1">
-                                {item.notes}
-                              </p>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteItem(item.id)}
-                            className="text-slate-500 hover:text-red-400"
-                            title="Delete"
-                          >
-                            <Icon name="close" className="w-4 h-4" />
-                          </button>
-                        </div>
-                      );
-                    })}
+                  <div className="space-y-4">
+                    {bacItems.map((item) => renderVialCard(item, true))}
                   </div>
                   <p className="text-xs text-slate-600 mt-3">
-                    Bac water isn't dosed, so it isn't auto-deducted — adjust it
-                    by deleting and re-adding when a bottle runs out.
+                    Bac water isn't dosed, so it isn't auto-deducted — use the
+                    controls above to open bottles or adjust your count.
                   </p>
                 </div>
               )}
@@ -647,7 +801,7 @@ export default function InventoryPage() {
           )}
         </div>
 
-        {/* ---------- RIGHT COLUMN: add form ---------- */}
+        {/* RIGHT: add form */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
           <h2 className="text-lg font-semibold text-white mb-1">
             Add to inventory
@@ -667,7 +821,6 @@ export default function InventoryPage() {
             </div>
           )}
 
-          {/* item type toggle */}
           <div className="flex gap-2 mb-4">
             <button
               type="button"
@@ -701,7 +854,6 @@ export default function InventoryPage() {
             </button>
           </div>
 
-          {/* peptide selector (peptide mode only) */}
           {itemType === "peptide" && (
             <div className="mb-4">
               <label className="block text-sm text-slate-400 mb-1">
@@ -722,7 +874,6 @@ export default function InventoryPage() {
             </div>
           )}
 
-          {/* tap-to-fill vial sizes (peptide mode, when known) */}
           {presets && (
             <div className="mb-4">
               <p className="text-sm text-slate-400 mb-2">
@@ -747,7 +898,6 @@ export default function InventoryPage() {
             </div>
           )}
 
-          {/* unit toggle (peptide mode only; bac water is mL) */}
           {itemType === "peptide" && (
             <div className="flex gap-2 mb-4">
               {UNITS.map((unitOption) => (
@@ -767,7 +917,6 @@ export default function InventoryPage() {
             </div>
           )}
 
-          {/* vial size × count */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm text-slate-400 mb-1">
@@ -802,7 +951,6 @@ export default function InventoryPage() {
             </div>
           </div>
 
-          {/* live total preview */}
           {vialSize && vialCount && parseFloat(vialSize) > 0 && (
             <p className="text-xs text-slate-500 mt-2">
               ={" "}
@@ -816,8 +964,7 @@ export default function InventoryPage() {
           <div className="grid grid-cols-2 gap-4 mt-4">
             <div>
               <label className="block text-sm text-slate-400 mb-1">
-                Cost ($CAD){" "}
-                <span className="text-slate-500">(optional)</span>
+                Cost ($CAD) <span className="text-slate-500">(optional)</span>
               </label>
               <input
                 type="number"
