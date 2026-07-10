@@ -136,6 +136,7 @@ export default function InventoryPage() {
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   const [doses, setDoses] = useState([]);
+  const [editingId, setEditingId] = useState(null); // which card is in edit mode
 
   // form fields
   const [itemType, setItemType] = useState("peptide");
@@ -432,7 +433,7 @@ export default function InventoryPage() {
     return { percentRemaining, daysLeft, dosesLeft, costPerDose };
   }
 
-  // ---------- one card renderer, used for peptides and bac water ----------
+  // ---------- one card renderer: clean by default, "⋯" expands to edit ----------
   function renderVialCard(item, isBac) {
     const size = parseFloat(item.vial_size);
     const hasVials = size && size > 0;
@@ -443,8 +444,17 @@ export default function InventoryPage() {
     const openVials = Array.isArray(item.open_vials) ? item.open_vials : [];
     const sealed = item.sealed_vials ?? 0;
     const unitWord = isBac ? "bottle" : "vial";
+    const editing = editingId === item.id;
     const percentOverall =
       total > 0 ? Math.max(0, Math.min(100, (remaining / total) * 100)) : 0;
+
+    // oldest known open-vial age, for the collapsed summary line
+    let oldestAge = null;
+    for (const v of openVials) {
+      const d = daysSince(v.opened_at);
+      if (d !== null && (oldestAge === null || d > oldestAge)) oldestAge = d;
+    }
+    const oldestStale = oldestAge !== null && oldestAge > STALE_OPEN_DAYS;
 
     return (
       <div
@@ -470,11 +480,26 @@ export default function InventoryPage() {
           </div>
           <button
             type="button"
-            onClick={() => handleDeleteItem(item.id)}
-            className="text-slate-500 hover:text-red-400"
-            title="Delete product"
+            onClick={() => setEditingId(editing ? null : item.id)}
+            className="text-slate-500 hover:text-white shrink-0"
+            title={editing ? "Done editing" : "Edit"}
+            aria-label={editing ? "Close editing" : "Edit"}
           >
-            <Icon name="close" className="w-4 h-4" />
+            {editing ? (
+              <Icon name="close" className="w-5 h-5" />
+            ) : (
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <circle cx="5" cy="12" r="1.6" />
+                <circle cx="12" cy="12" r="1.6" />
+                <circle cx="19" cy="12" r="1.6" />
+              </svg>
+            )}
           </button>
         </div>
 
@@ -486,194 +511,222 @@ export default function InventoryPage() {
           ></div>
         </div>
 
-        {hasVials ? (
+        {!editing ? (
+          // ===================== SIMPLE VIEW =====================
           <>
-            {/* open vials */}
-            <div className="mt-4">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2">
+            {hasVials ? (
+              <p className="text-sm text-slate-400 mt-3">
                 {openVials.length === 0
-                  ? `No open ${unitWord}s`
-                  : `Open ${unitWord}s (${openVials.length} of ${MAX_OPEN_VIALS})`}
-              </p>
-
-              {openVials.length > 0 && (
-                <div className="space-y-2">
-                  {openVials.map((v, i) => {
-                    const vRemaining = parseFloat(v.remaining) || 0;
-                    const pct =
-                      size > 0
-                        ? Math.max(0, Math.min(100, (vRemaining / size) * 100))
-                        : 0;
-                    const age = daysSince(v.opened_at);
-                    const stale = age !== null && age > STALE_OPEN_DAYS;
-                    return (
-                      <div
-                        key={i}
-                        className="bg-slate-800/50 border border-slate-700 rounded-lg p-3"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-sm text-white font-semibold">
-                            {cleanNum(vRemaining)}/{cleanNum(size)} {item.unit}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => discardOpenVial(item, i)}
-                            className="text-xs text-slate-500 hover:text-red-400"
-                          >
-                            Discard
-                          </button>
-                        </div>
-                        <div className="w-full bg-slate-700 rounded-full h-1.5 mt-2">
-                          <div
-                            className="h-1.5 rounded-full bg-emerald-500"
-                            style={{ width: `${pct}%` }}
-                          ></div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
-                          <span className="text-slate-500">Opened</span>
-                          <input
-                            type="date"
-                            value={v.opened_at || ""}
-                            max={today}
-                            onChange={(e) =>
-                              setOpenedDate(item, i, e.target.value)
-                            }
-                            className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300 [color-scheme:dark]"
-                          />
-                          {age !== null && (
-                            <span className={stale ? "text-amber-400" : "text-slate-500"}>
-                              {openedAgeText(age)}
-                              {stale ? " — check stability" : ""}
-                            </span>
-                          )}
-                          {age === null && (
-                            <span className="text-slate-600">set the date</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* sealed count + actions */}
-            <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-400">
-                  Sealed {unitWord}s
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => adjustSealed(item, -1)}
-                    disabled={sealed <= 0}
-                    className={stepBtn}
-                    aria-label={`Remove one sealed ${unitWord}`}
-                  >
-                    −
-                  </button>
-                  <span className="text-white font-semibold w-6 text-center">
-                    {sealed}
+                  ? `${sealed} sealed ${unitWord}${sealed === 1 ? "" : "s"}`
+                  : openVials.length === 1
+                  ? `Open ${cleanNum(openVials[0].remaining)}/${cleanNum(size)} ${item.unit} · ${sealed} sealed`
+                  : `${openVials.length} open ${unitWord}s · ${sealed} sealed`}
+                {oldestAge !== null && (
+                  <span className={oldestStale ? "text-amber-400" : "text-slate-500"}>
+                    {" · "}
+                    {openVials.length > 1 ? "oldest " : ""}
+                    {openedAgeText(oldestAge)}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => adjustSealed(item, 1)}
-                    className={stepBtn}
-                    aria-label={`Add one sealed ${unitWord}`}
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => openAVial(item)}
-                disabled={sealed < 1 || openVials.length >= MAX_OPEN_VIALS}
-                className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-200 font-medium text-sm px-4 py-2 rounded-lg border border-slate-700"
-              >
-                Open a {unitWord}
-              </button>
-            </div>
-            {openVials.length >= MAX_OPEN_VIALS && (
-              <p className="text-xs text-slate-600 mt-1">
-                Max {MAX_OPEN_VIALS} open {unitWord}s — finish or discard one to
-                open another.
+                )}
+              </p>
+            ) : (
+              <p className="text-sm text-slate-500 mt-3">
+                {cleanNum(remaining)} of {cleanNum(total)} {item.unit} remaining (
+                {stats.percentRemaining.toFixed(0)}%)
               </p>
             )}
-            {sealed < 1 && openVials.length < MAX_OPEN_VIALS && (
-              <p className="text-xs text-slate-600 mt-1">
-                No sealed {unitWord}s left to open.
-              </p>
+
+            {!isBac && (
+              <div className="flex flex-wrap gap-x-5 gap-y-1 mt-3 text-sm">
+                <span>
+                  <span className="text-slate-500">Days of supply </span>
+                  <span className="text-white font-semibold">
+                    {stats.daysLeft !== null ? `~${stats.daysLeft}` : "—"}
+                  </span>
+                </span>
+                <span>
+                  <span className="text-slate-500">Doses left </span>
+                  <span className="text-white font-semibold">
+                    {stats.dosesLeft !== null ? `~${stats.dosesLeft}` : "—"}
+                  </span>
+                </span>
+                <span>
+                  <span className="text-slate-500">Cost / dose </span>
+                  <span className="text-white font-semibold">
+                    {stats.costPerDose !== null
+                      ? `$${stats.costPerDose.toFixed(2)}`
+                      : "—"}
+                  </span>
+                </span>
+                {item.purchase_date && (
+                  <span>
+                    <span className="text-slate-500">Bought </span>
+                    <span className="text-white font-semibold">
+                      {formatDate(item.purchase_date)}
+                    </span>
+                  </span>
+                )}
+              </div>
+            )}
+
+            {item.notes && (
+              <p className="text-sm text-slate-500 mt-2">{item.notes}</p>
             )}
           </>
         ) : (
-          <p className="text-sm text-slate-500 mt-3">
-            {cleanNum(remaining)} of {cleanNum(total)} {item.unit} remaining (
-            {stats.percentRemaining.toFixed(0)}%)
-          </p>
-        )}
-
-        {/* dose-history stats (peptides only) */}
-        {!isBac && (
+          // ===================== EDIT VIEW =====================
           <>
-            <div className="flex flex-wrap gap-x-5 gap-y-1 mt-4 text-sm">
-              <span>
-                <span className="text-slate-500">Days of supply </span>
-                <span className="text-white font-semibold">
-                  {stats.daysLeft !== null ? `~${stats.daysLeft}` : "—"}
-                </span>
-              </span>
-              <span>
-                <span className="text-slate-500">Doses left </span>
-                <span className="text-white font-semibold">
-                  {stats.dosesLeft !== null ? `~${stats.dosesLeft}` : "—"}
-                </span>
-              </span>
-              <span>
-                <span className="text-slate-500">Cost / dose </span>
-                <span className="text-white font-semibold">
-                  {stats.costPerDose !== null
-                    ? `$${stats.costPerDose.toFixed(2)}`
-                    : "—"}
-                </span>
-              </span>
-              {item.purchase_date && (
-                <span>
-                  <span className="text-slate-500">Bought </span>
-                  <span className="text-white font-semibold">
-                    {formatDate(item.purchase_date)}
-                  </span>
-                </span>
-              )}
-            </div>
-            {stats.daysLeft === null && stats.dosesLeft === null && (
-              <p className="text-xs text-slate-600 mt-2">
-                "Days of supply" and "Doses left" appear once you've logged doses
-                of "{item.peptide_name}" (with a compatible unit).
+            {hasVials ? (
+              <>
+                <div className="mt-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2">
+                    {openVials.length === 0
+                      ? `No open ${unitWord}s`
+                      : `Open ${unitWord}${openVials.length === 1 ? "" : "s"}`}
+                  </p>
+
+                  {openVials.length > 0 && (
+                    <div className="space-y-2">
+                      {openVials.map((v, i) => {
+                        const vRemaining = parseFloat(v.remaining) || 0;
+                        const pct =
+                          size > 0
+                            ? Math.max(0, Math.min(100, (vRemaining / size) * 100))
+                            : 0;
+                        const age = daysSince(v.opened_at);
+                        const stale = age !== null && age > STALE_OPEN_DAYS;
+                        return (
+                          <div
+                            key={i}
+                            className="bg-slate-800/50 border border-slate-700 rounded-lg p-3"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-sm text-white font-semibold">
+                                {cleanNum(vRemaining)}/{cleanNum(size)} {item.unit}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => discardOpenVial(item, i)}
+                                className="text-xs text-slate-500 hover:text-red-400"
+                              >
+                                Discard
+                              </button>
+                            </div>
+                            <div className="w-full bg-slate-700 rounded-full h-1.5 mt-2">
+                              <div
+                                className="h-1.5 rounded-full bg-emerald-500"
+                                style={{ width: `${pct}%` }}
+                              ></div>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
+                              <span className="text-slate-500">Opened</span>
+                              <input
+                                type="date"
+                                value={v.opened_at || ""}
+                                max={today}
+                                onChange={(e) =>
+                                  setOpenedDate(item, i, e.target.value)
+                                }
+                                className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300 [color-scheme:dark]"
+                              />
+                              {age !== null && (
+                                <span
+                                  className={stale ? "text-amber-400" : "text-slate-500"}
+                                >
+                                  {openedAgeText(age)}
+                                  {stale ? " — check stability" : ""}
+                                </span>
+                              )}
+                              {age === null && (
+                                <span className="text-slate-600">set the date</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-slate-400">
+                      Sealed {unitWord}s
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => adjustSealed(item, -1)}
+                        disabled={sealed <= 0}
+                        className={stepBtn}
+                        aria-label={`Remove one sealed ${unitWord}`}
+                      >
+                        −
+                      </button>
+                      <span className="text-white font-semibold w-6 text-center">
+                        {sealed}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => adjustSealed(item, 1)}
+                        className={stepBtn}
+                        aria-label={`Add one sealed ${unitWord}`}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => openAVial(item)}
+                    disabled={sealed < 1 || openVials.length >= MAX_OPEN_VIALS}
+                    className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-200 font-medium text-sm px-4 py-2 rounded-lg border border-slate-700"
+                  >
+                    Open a {unitWord}
+                  </button>
+                </div>
+                {openVials.length >= MAX_OPEN_VIALS && (
+                  <p className="text-xs text-slate-600 mt-1">
+                    Max {MAX_OPEN_VIALS} open {unitWord}s — finish or discard one
+                    to open another.
+                  </p>
+                )}
+                {sealed < 1 && openVials.length < MAX_OPEN_VIALS && (
+                  <p className="text-xs text-slate-600 mt-1">
+                    No sealed {unitWord}s left to open.
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-slate-500 mt-3">
+                This item has no vial size, so per-vial controls aren't available
+                — you can still delete it below.
               </p>
             )}
+
+            {/* danger + done */}
+            <div className="mt-5 pt-4 border-t border-slate-800 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => handleDeleteItem(item.id)}
+                className="text-sm text-red-400 hover:text-red-300"
+              >
+                Delete item
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingId(null)}
+                className="bg-emerald-500 hover:bg-emerald-600 text-emerald-950 font-semibold text-sm px-5 py-2 rounded-lg"
+              >
+                Done
+              </button>
+            </div>
+
+            {item.notes && (
+              <p className="text-sm text-slate-500 mt-3">{item.notes}</p>
+            )}
           </>
-        )}
-
-        {/* bac water: cost / bought line (no dose stats) */}
-        {isBac && (
-          <p className="text-xs text-slate-500 mt-3">
-            {item.cost !== null && item.cost !== undefined
-              ? `$${parseFloat(item.cost).toFixed(2)}`
-              : ""}
-            {item.cost !== null &&
-            item.cost !== undefined &&
-            item.purchase_date
-              ? " · "
-              : ""}
-            {item.purchase_date ? `Bought ${formatDate(item.purchase_date)}` : ""}
-          </p>
-        )}
-
-        {item.notes && (
-          <p className="text-sm text-slate-500 mt-2">{item.notes}</p>
         )}
       </div>
     );
