@@ -36,7 +36,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
-import { PEPTIDES, UNITS } from "../../lib/peptides";
+import { PEPTIDES, UNITS, VIAL_SIZES } from "../../lib/peptides";
 import {
   INJECTION_SITE_GROUPS,
   BODY_POINTS,
@@ -47,6 +47,7 @@ import {
 import { deductFromInventory } from "../../lib/inventory-helpers";
 import StackSummary from "../../components/StackSummary";
 import { hasPremiumAccess } from "../../lib/access";
+import DrawCalculator from "../../components/DrawCalculator";
 
 // ---------------- icons (cohesive line set, replaces emoji) ----------------
 function Icon({ name, className = "w-4 h-4" }) {
@@ -613,6 +614,15 @@ export default function Log() {
 
   const selectedGroupData = INJECTION_SITE_GROUPS.find((g) => g.group === injectionGroup);
 
+  // suggested values for the draw calculator — both stay fully editable
+  const vialPreset =
+    peptideName && VIAL_SIZES[peptideName] ? VIAL_SIZES[peptideName] : null;
+  const suggestedVialMg =
+    vialPreset && vialPreset.unit === "mg" && vialPreset.sizes.length > 0
+      ? vialPreset.sizes[0]
+      : undefined;
+  const suggestedDoseMg = unit === "mg" && doseAmount ? doseAmount : undefined;
+
   if (loading) {
     return (
       <main className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -819,6 +829,11 @@ export default function Log() {
                 onUseSite={handleUseSite}
               />
             </div>
+
+            <DrawCalculator
+              suggestedVialMg={suggestedVialMg}
+              suggestedDoseMg={suggestedDoseMg}
+            />
 
             <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
               <h2 className="text-white font-semibold mb-4">Recent Doses</h2>

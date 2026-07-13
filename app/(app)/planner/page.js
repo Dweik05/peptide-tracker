@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { PEPTIDES, VIAL_SIZES, convertAmount } from "../../lib/peptides";
 import { doseOnDate } from "../../lib/schedule-helpers";
+import DrawCalculator from "../../components/DrawCalculator";
 
 // ---------------- icons (cohesive line set, replaces emoji) ----------------
 function Icon({ name, className = "w-4 h-4" }) {
@@ -297,11 +298,6 @@ export default function PlannerPage() {
   // so a draft's custom day selection isn't overwritten
   const isLoadingDraft = useRef(false);
 
-  // draw calculator
-  const [drawVialMg, setDrawVialMg] = useState("");
-  const [drawWaterMl, setDrawWaterMl] = useState("");
-  const [drawDoseMg, setDrawDoseMg] = useState("");
-
   useEffect(() => {
     async function init() {
       const {
@@ -390,7 +386,6 @@ export default function PlannerPage() {
     if (preset && preset.sizes.length > 0) {
       setVialSize(String(preset.sizes[0]));
       setVialUnit(preset.unit);
-      if (preset.unit === "mg") setDrawVialMg(String(preset.sizes[0]));
     } else {
       setVialSize("");
     }
@@ -674,18 +669,6 @@ export default function PlannerPage() {
     if (!error) {
       setDrafts((current) => current.filter((d) => d.id !== draft.id));
     }
-  }
-
-  // ---------------- draw calculator ----------------
-  const dv = parseFloat(drawVialMg);
-  const dw = parseFloat(drawWaterMl);
-  const dd = parseFloat(drawDoseMg);
-  let draw = null;
-  if (!isNaN(dv) && dv > 0 && !isNaN(dw) && dw > 0 && !isNaN(dd) && dd > 0) {
-    const concentration = dv / dw;
-    const ml = dd / concentration;
-    const units = ml * 100;
-    draw = { concentration, ml, units, overdraw: dd > dv };
   }
 
   const presetSizes = peptide && VIAL_SIZES[peptide] ? VIAL_SIZES[peptide] : null;
@@ -1283,94 +1266,13 @@ export default function PlannerPage() {
             )}
           </div>
 
-          {/* draw calculator */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-white mb-1">
-              Reconstitution draw calculator
-            </h2>
-            <p className="text-sm text-slate-500 mb-4">
-              After mixing, work out exactly how much to draw for your dose.
-              Amounts in mg.
-            </p>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">
-                  Vial amount (mg)
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  placeholder="10"
-                  value={drawVialMg}
-                  onChange={(e) => setDrawVialMg(e.target.value)}
-                  className={inputClasses}
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">
-                  Water added (mL)
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  placeholder="2"
-                  value={drawWaterMl}
-                  onChange={(e) => setDrawWaterMl(e.target.value)}
-                  className={inputClasses}
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">
-                  Your dose (mg)
-                </label>
-                <input
-                  type="number"
-                  step="0.001"
-                  min="0"
-                  placeholder="0.5"
-                  value={drawDoseMg}
-                  onChange={(e) => setDrawDoseMg(e.target.value)}
-                  className={inputClasses}
-                />
-              </div>
-            </div>
-
-            {draw && (
-              <div className="mt-4 bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-                <p className="text-sm text-slate-300">
-                  Concentration:{" "}
-                  <span className="text-white font-semibold">
-                    {trim(draw.concentration)} mg/mL
-                  </span>
-                </p>
-                <p className="text-sm text-slate-300 mt-1">
-                  Draw{" "}
-                  <span className="text-emerald-400 font-semibold">
-                    {trim(draw.ml)} mL
-                  </span>{" "}
-                  ={" "}
-                  <span className="text-emerald-400 font-semibold">
-                    {Math.round(draw.units)} units
-                  </span>{" "}
-                  on a U-100 insulin syringe.
-                </p>
-                {draw.overdraw && (
-                  <p className="text-xs text-amber-400 mt-2">
-                    Your dose is larger than the whole vial — double-check the
-                    numbers.
-                  </p>
-                )}
-              </div>
-            )}
-
-            <p className="text-xs text-slate-500 mt-3">
-              Math only — this converts a dose you entered into a volume. It is
-              not a recommendation about how much to take.
-            </p>
-          </div>
+          {/* draw calculator (shared component) */}
+          <DrawCalculator
+            suggestedVialMg={vialUnit === "mg" ? vialSize : undefined}
+            suggestedDoseMg={
+              doseMode === "flat" && doseUnit === "mg" ? dose : undefined
+            }
+          />
         </div>
       </div>
 
