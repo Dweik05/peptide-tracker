@@ -19,9 +19,13 @@
 import Link from "next/link";
 
 export const metadata = {
-  title: "Peptide Tracker — Track your peptide protocol",
+  // `absolute` bypasses the "%s · Peptide Tracker" template in app/layout.js,
+  // so the homepage title isn't doubled up.
+  title: {
+    absolute: "Peptide Tracker — Track Doses, Inventory & Progress",
+  },
   description:
-    "A private dashboard for tracking your peptide protocol: log doses, follow your schedule, build stacks, browse a built-in encyclopedia, and watch your progress.",
+    "The all-in-one dashboard for your peptide protocol: log doses, track vial inventory, calculate reconstitution, plan titrated protocols, and watch your progress — private by default.",
 };
 
 const css = `
@@ -152,6 +156,13 @@ const css = `
 .lp-step h3 { font-size: 17px; font-weight: 700; margin-top: 16px; }
 .lp-step p { font-size: 14px; color: #94a3b8; margin-top: 6px; line-height: 1.55; }
 
+/* everything / features */
+.lp-fgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; max-width: 1080px; margin: 0 auto; position: relative; z-index: 2; }
+.lp-fcard { background: #0b1426; border: 1px solid #1e293b; border-radius: 16px; padding: 24px; }
+.lp-fic { width: 44px; height: 44px; border-radius: 11px; background: rgba(16,185,129,0.10); border: 1px solid rgba(16,185,129,0.22); color: #34d399; display: flex; align-items: center; justify-content: center; }
+.lp-fcard h3 { font-size: 16px; font-weight: 700; margin-top: 16px; }
+.lp-fcard p { font-size: 14px; color: #94a3b8; margin-top: 6px; line-height: 1.55; }
+
 /* pricing */
 .lp-plans { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 760px; margin: 0 auto; position: relative; z-index: 2; }
 .lp-plan { background: #0b1426; border: 1px solid #1e293b; border-radius: 18px; padding: 28px; display: flex; flex-direction: column; }
@@ -193,6 +204,7 @@ const css = `
   .lp-cols, .lp-scols { grid-template-columns: 1fr; gap: 32px; }
   .lp-goals { grid-template-columns: 1fr; }
   .lp-steps { grid-template-columns: 1fr; }
+  .lp-fgrid { grid-template-columns: 1fr 1fr; }
   .lp-final h2 { font-size: 32px; }
   .lp-section { padding: 64px 24px 72px; }
   /* pricing stays two-up — just a slightly tighter gap */
@@ -217,6 +229,7 @@ const css = `
   /* tighter section spacing + heading sizes */
   .lp-section { padding: 52px 18px 56px; }
   .lp-h2 { font-size: 28px; }
+  .lp-fgrid { grid-template-columns: 1fr; }
   .lp-final { padding: 72px 20px; }
   .lp-final h2 { font-size: 28px; }
   .lp-btn-lg { padding: 13px 22px; font-size: 15px; }
@@ -251,7 +264,7 @@ export default function LandingPage() {
           <span className="lp-dot" style={{ top: "70%", right: "13%", width: "9px", height: "9px" }} />
 
           <nav className="lp-nav">
-            <div className="lp-brand"><span className="lp-mark">◇</span>Peptide<span className="lp-em">Tracker</span></div>
+            <div className="lp-brand"><span className="lp-mark"><svg viewBox="0 0 32 32" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16 6C12.5 12.5 9 16 9 20.5a7 7 0 1 0 14 0C23 16 19.5 12.5 16 6Z" /></svg></span>Peptide<span className="lp-em">Tracker</span></div>
             <div className="lp-nav-right">
               <Link href="/login" className="lp-login">Log in</Link>
               <Link href="/signup" className="lp-btn lp-btn-em">Get started</Link>
@@ -262,11 +275,54 @@ export default function LandingPage() {
             <p className="lp-eyebrow">For people who take it seriously</p>
             <h1 className="lp-h1">Every dose.<br />Every result.<br /><span className="lp-em">One place.</span></h1>
             <div className="lp-line" />
-            <p className="lp-sub">The private dashboard for tracking your peptide protocol — doses, schedules, and progress, beautifully organized.</p>
+            <p className="lp-sub">The all-in-one dashboard for your peptide protocol — log doses, track your vials, get reconstitution right, and watch your progress. Private by default.</p>
             <div className="lp-ctas">
-              <Link href="/signup" className="lp-btn lp-btn-em lp-btn-lg">Start free trial</Link>
+              <Link href="/signup" className="lp-btn lp-btn-em lp-btn-lg">Get started free</Link>
             </div>
-            <div className="lp-chip">✦ 14-day free trial · cancel anytime</div>
+            <div className="lp-chip">✦ Free to start · no credit card required</div>
+          </div>
+        </section>
+
+        {/* ===================== EVERYTHING (features) ===================== */}
+        <section className="lp-section lp-glow-top">
+          <div className="lp-inner">
+            <div className="lp-head">
+              <p className="lp-eyebrow">Everything in one place</p>
+              <h2 className="lp-h2">The whole protocol,<br /><span className="lp-em">handled.</span></h2>
+              <p className="lp-sub">From your first injection to your next doctor's visit — every tool you need to run a protocol properly, without a spreadsheet in sight.</p>
+            </div>
+            <div className="lp-fgrid">
+              <div className="lp-fcard">
+                <span className="lp-fic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="21" height="21"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11z" /><circle cx="12" cy="10" r="2.5" /></svg></span>
+                <h3>Dose logging &amp; site rotation</h3>
+                <p>Log every dose in seconds. A body-map heat view shows the sites you've used lately, so you rotate and let each spot rest.</p>
+              </div>
+              <div className="lp-fcard">
+                <span className="lp-fic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="21" height="21"><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M3 11h18" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg></span>
+                <h3>Inventory &amp; vials</h3>
+                <p>Track sealed and open vials, how much is left in each, and your cost per dose — so you reorder before you run out.</p>
+              </div>
+              <div className="lp-fcard">
+                <span className="lp-fic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="21" height="21"><path d="M9 3h6" /><path d="M10 3v5.5L5.2 16.4A2 2 0 0 0 6.9 19.5h10.2a2 2 0 0 0 1.7-3.1L14 8.5V3" /><path d="M7.5 14h9" /></svg></span>
+                <h3>Reconstitution calculator</h3>
+                <p>Enter your vial, water, and target dose — get the exact units to draw on your insulin syringe. No mixing-math guesswork.</p>
+              </div>
+              <div className="lp-fcard">
+                <span className="lp-fic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="21" height="21"><rect x="3" y="4.5" width="18" height="16" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="8" y1="2.5" x2="8" y2="6" /><line x1="16" y1="2.5" x2="16" y2="6" /></svg></span>
+                <h3>Protocol planner</h3>
+                <p>Plan flat or titrated protocols, see how many vials you'll need and what it'll cost, and drop it onto your calendar.</p>
+              </div>
+              <div className="lp-fcard">
+                <span className="lp-fic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="21" height="21"><path d="M4 19V5" /><path d="M4 19h16" /><polyline points="7 14 11 10 14 13 19 7" /></svg></span>
+                <h3>Progress tracking</h3>
+                <p>Log weight, measurements, and progress photos, and watch your trend over time to see how your protocol is working.</p>
+              </div>
+              <div className="lp-fcard">
+                <span className="lp-fic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="21" height="21"><rect x="5" y="3" width="14" height="18" rx="2" /><line x1="9" y1="8" x2="15" y2="8" /><line x1="9" y1="12" x2="15" y2="12" /><line x1="9" y1="16" x2="13" y2="16" /></svg></span>
+                <h3>Doctor-ready report</h3>
+                <p>Export a clean PDF — or share a private, read-only link — of your full protocol and history for your provider.</p>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -505,7 +561,7 @@ export default function LandingPage() {
                 <div className="lp-plan-pop-badge">Most popular</div>
                 <div className="lp-plan-name">Premium</div>
                 <div className="lp-price">$2.99 <span>/ month</span></div>
-                <div className="lp-plan-note">or $24.99/year · 14-day free trial</div>
+                <div className="lp-plan-note">or $24.99/year · 14-day free trial, no card</div>
                 <div className="lp-plan-list">
                   <div className="lp-plan-li"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><polyline points="20 6 9 17 4 12" /></svg>Everything in Free, plus:</div>
                   <div className="lp-plan-li"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><polyline points="20 6 9 17 4 12" /></svg>Advanced insights &amp; correlations</div>
@@ -526,7 +582,7 @@ export default function LandingPage() {
             <h2>Take control of your protocol.</h2>
             <p>Start tracking in minutes — it's free to begin.</p>
             <div className="lp-ctas">
-              <Link href="/signup" className="lp-btn lp-btn-em lp-btn-lg">Start free trial</Link>
+              <Link href="/signup" className="lp-btn lp-btn-em lp-btn-lg">Get started free</Link>
               <Link href="/login" className="lp-btn lp-btn-ghost lp-btn-lg">Log in</Link>
             </div>
           </div>
@@ -536,7 +592,7 @@ export default function LandingPage() {
         <footer className="lp-footer">
           <div className="lp-foot-top">
             <div className="lp-foot-brand">
-              <div className="lp-brand"><span className="lp-mark">◇</span>Peptide<span className="lp-em">Tracker</span></div>
+              <div className="lp-brand"><span className="lp-mark"><svg viewBox="0 0 32 32" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16 6C12.5 12.5 9 16 9 20.5a7 7 0 1 0 14 0C23 16 19.5 12.5 16 6Z" /></svg></span>Peptide<span className="lp-em">Tracker</span></div>
               <p className="lp-foot-tag">The private dashboard for tracking your peptide protocol — doses, schedules, stacks, and progress, all in one place.</p>
             </div>
             <div className="lp-foot-links">
