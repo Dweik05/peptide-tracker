@@ -32,7 +32,7 @@ export default function TermsPage() {
         </Link>
 
         <h1 className="mt-6 text-3xl font-bold text-white">Terms of Service</h1>
-        <p className="mt-2 text-sm text-slate-500">Last updated: June 30, 2026</p>
+        <p className="mt-2 text-sm text-slate-500">Last updated: July 15, 2026</p>
 
         {/* prominent medical disclaimer up top */}
         <div className="mt-6 bg-amber-500/5 border border-amber-500/25 rounded-xl p-5">
@@ -133,16 +133,28 @@ export default function TermsPage() {
             <h2 className="text-xl font-semibold text-white mb-3">
               7. Plans, payments, and trials
             </h2>
+            <p className="mb-3">
+              The service offers a free tier that you can use indefinitely
+              without payment and without providing a payment method. It also
+              offers an optional paid plan ("Premium") with additional features,
+              available on a monthly or annual basis.
+            </p>
+            <p className="mb-3">
+              We may offer a free trial of Premium. The trial does not require a
+              credit card or any other payment method. Because we do not collect
+              payment information for the trial, you are not charged
+              automatically when it ends — instead, your access simply returns to
+              the free tier unless you choose to subscribe to Premium.
+            </p>
             <p>
-              The service offers a free tier and may offer optional paid plans
-              with additional features. If you purchase a paid plan, you
-              authorize us and our payment processor to charge the applicable
-              fees. Where a free trial is offered, you may be charged when the
-              trial ends unless you cancel beforehand. You can cancel a paid plan
-              at any time; cancellation stops future charges and takes effect at
-              the end of the current billing period. Except where required by
-              law, fees already paid are non-refundable. Prices and plan details
-              may change, with notice for active subscribers.
+              If you subscribe to Premium, you authorize us and our payment
+              processor to charge the applicable fees, and your subscription
+              renews automatically each billing period until you cancel. You can
+              cancel at any time; cancellation stops future charges and takes
+              effect at the end of the current billing period, and you keep
+              Premium access until then. Except where required by law, fees
+              already paid are non-refundable. Prices and plan details may
+              change, with notice to active subscribers.
             </p>
           </section>
 
