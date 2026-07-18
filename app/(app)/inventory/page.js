@@ -29,6 +29,7 @@ import {
   convertAmount,
 } from "../../lib/peptides";
 import StackSummary from "../../components/StackSummary";
+import PageTour from "../../components/PageTour";
 
 const LOW_STOCK_PERCENT = 20;
 const MAX_OPEN_VIALS = 3;
@@ -462,7 +463,9 @@ export default function InventoryPage() {
   }
 
   // ---------- one card renderer: clean by default, "⋯" expands to edit ----------
-  function renderVialCard(item, isBac) {
+  // isFirst just marks the first card with data-tour hooks so the guided tour
+  // can point at a real card. It has no effect on how the card behaves.
+  function renderVialCard(item, isBac, isFirst) {
     const size = parseFloat(item.vial_size);
     const hasVials = size && size > 0;
     const total = parseFloat(item.quantity_total);
@@ -479,6 +482,7 @@ export default function InventoryPage() {
     return (
       <div
         key={item.id}
+        data-tour={isFirst ? "product-card" : undefined}
         className={`bg-slate-900 border rounded-xl p-6 ${
           isLow ? "border-red-500/40" : "border-slate-800"
         }`}
@@ -495,6 +499,7 @@ export default function InventoryPage() {
           </h2>
           <button
             type="button"
+            data-tour={isFirst ? "edit-toggle" : undefined}
             onClick={() => setEditingId(editing ? null : item.id)}
             className="text-slate-500 hover:text-white shrink-0"
             title={editing ? "Done editing" : "Edit"}
@@ -810,6 +815,38 @@ export default function InventoryPage() {
 
   return (
     <div className="p-6 md:p-8 max-w-6xl space-y-6">
+      {/* ---------- guided tour of this page ---------- */}
+      <PageTour
+        tourKey="inventory"
+        steps={[
+          {
+            target: '[data-tour="add-form"]',
+            title: "Add what you bought",
+            body: "Enter it the way you actually buy it — vial size × how many vials. Pick a peptide and common sizes appear as one-tap buttons.",
+          },
+          {
+            target: '[data-tour="summary"]',
+            title: "The quick numbers",
+            body: "How many peptides you're tracking, how many have dropped to 20% or less, and what you've spent in total.",
+          },
+          {
+            target: '[data-tour="product-card"]',
+            title: "Total vs. the vial you're using",
+            body: "The Total bar is your whole stock. Each Open vial bar shows what's left in a vial you've actually opened, and how long it's been open — so a nearly-full total doesn't hide a nearly-empty vial.",
+          },
+          {
+            target: '[data-tour="product-card"]',
+            title: "It updates itself",
+            body: "Every dose you log drains your oldest open vial first, and opens a sealed one automatically when they're empty. Days of supply and cost per dose come from your real dose history.",
+          },
+          {
+            target: '[data-tour="edit-toggle"]',
+            title: "Tap ⋯ to make changes",
+            body: "Opens edit mode: open a vial, discard a partial one, adjust your sealed count, set opened dates, or delete the item. It's tucked behind a tap so nothing destructive is ever a misclick away.",
+          },
+        ]}
+      />
+
       {/* header */}
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-white">
@@ -822,7 +859,7 @@ export default function InventoryPage() {
 
       {/* summary cards */}
       {items.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div data-tour="summary" className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
               Peptides tracked
@@ -871,7 +908,9 @@ export default function InventoryPage() {
             </div>
           ) : (
             <>
-              {sortedPeptides.map((item) => renderVialCard(item, false))}
+              {sortedPeptides.map((item, index) =>
+                renderVialCard(item, false, index === 0)
+              )}
 
               {bacItems.length > 0 && (
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
@@ -896,7 +935,10 @@ export default function InventoryPage() {
         </div>
 
         {/* RIGHT: add form */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <div
+          data-tour="add-form"
+          className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+        >
           <h2 className="text-lg font-semibold text-white mb-1">
             Add to inventory
           </h2>
