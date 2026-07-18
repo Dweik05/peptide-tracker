@@ -48,6 +48,7 @@ import { deductFromInventory } from "../../lib/inventory-helpers";
 import StackSummary from "../../components/StackSummary";
 import { hasPremiumAccess } from "../../lib/access";
 import DrawCalculator from "../../components/DrawCalculator";
+import PageTour from "../../components/PageTour";
 
 // ---------------- icons (cohesive line set, replaces emoji) ----------------
 function Icon({ name, className = "w-4 h-4" }) {
@@ -230,7 +231,10 @@ function RotationMap({ stats, unmappedCount, suggestion, onUseSite }) {
     <div>
       {/* suggestion banner */}
       {suggestion && (
-        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-4 py-3 mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div
+          data-tour="suggestion"
+          className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-4 py-3 mb-4 flex flex-wrap items-center justify-between gap-3"
+        >
           <p className="text-sm text-emerald-400">
             <Icon name="bulb" className="w-3.5 h-3.5 inline-block align-[-2px] mr-1" />
             Suggested next:{" "}
@@ -633,6 +637,48 @@ export default function Log() {
 
   return (
     <main className="p-6 md:p-8">
+      {/* ---------- guided tour of this page ---------- */}
+      <PageTour
+        tourKey="log"
+        steps={[
+          {
+            target: '[data-tour="peptide"]',
+            title: "Anything you're stocked on comes first",
+            body: "Peptides you actually have in inventory are grouped at the top of this list, so you're not scrolling past 90 others to find yours.",
+          },
+          {
+            target: '[data-tour="dose"]',
+            title: "Your dose",
+            body: "Enter the amount and unit. When you save, this exact amount is subtracted from your open vial in inventory — no separate bookkeeping.",
+          },
+          {
+            target: '[data-tour="site-mode"]',
+            title: "Two ways to pick a site",
+            body: "Choose from the dropdown, or tap the spot straight on a body diagram. Both record the same thing, so use whichever is faster for you.",
+          },
+          {
+            target: '[data-tour="suggestion"]',
+            title: "Where to inject next",
+            body: "Suggests the site you've rested longest — only from areas you already use. Hit \"Use this site\" and it fills the form for you.",
+          },
+          {
+            target: '[data-tour="rotation"]',
+            title: "Your last 90 days, on the body",
+            body: "Red means you used that spot in the last week — let it rest. Amber is 7–14 days, green is well rested. The numbers are how many doses landed there.",
+          },
+          {
+            target: '[data-tour="draw-calc"]',
+            title: "How much to draw",
+            body: "Your dose carries down from the form and the vial size is a best guess — add how much water you mixed with and it tells you the units to pull on a U-100 syringe. Every box stays editable.",
+          },
+          {
+            target: '[data-tour="recent"]',
+            title: "Your recent doses",
+            body: "The last ten doses, so you can double-check what you took and when before logging another.",
+          },
+        ]}
+      />
+
       <div className="max-w-6xl mx-auto">
         <h1 className="text-2xl font-semibold tracking-tight text-white mb-2">Log a Dose</h1>
         <p className="text-slate-600 text-xs mb-6">{sessionDebug}</p>
@@ -660,7 +706,7 @@ export default function Log() {
           {/* ============ LEFT: the log form (unchanged) ============ */}
           <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
 
-            <div className="mb-4">
+            <div data-tour="peptide" className="mb-4">
               <label className="text-slate-400 text-sm mb-1 block">Peptide</label>
               <select
                 value={peptideName}
@@ -687,7 +733,7 @@ export default function Log() {
               </select>
             </div>
 
-            <div className="flex gap-3 mb-4">
+            <div data-tour="dose" className="flex gap-3 mb-4">
               <div className="flex-1">
                 <label className="text-slate-400 text-sm mb-1 block">Dose Amount</label>
                 <input
@@ -714,7 +760,7 @@ export default function Log() {
 
             <div className="mb-4">
               <label className="text-slate-400 text-sm mb-2 block">Injection Site</label>
-              <div className="flex gap-2 mb-3">
+              <div data-tour="site-mode" className="flex gap-2 mb-3">
                 <button
                   onClick={() => setSiteMode("dropdown")}
                   className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors inline-flex items-center justify-center gap-1.5 ${
@@ -818,7 +864,10 @@ export default function Log() {
           <div className="space-y-6">
             <StackSummary />
 
-            <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
+            <div
+              data-tour="rotation"
+              className="bg-slate-900 rounded-xl p-6 border border-slate-800"
+            >
               <h2 className="text-white font-semibold mb-4">
                 Site rotation <span className="text-sm font-normal text-slate-500">(last 90 days)</span>
               </h2>
@@ -830,12 +879,17 @@ export default function Log() {
               />
             </div>
 
-            <DrawCalculator
-              suggestedVialMg={suggestedVialMg}
-              suggestedDoseMg={suggestedDoseMg}
-            />
+            <div data-tour="draw-calc">
+              <DrawCalculator
+                suggestedVialMg={suggestedVialMg}
+                suggestedDoseMg={suggestedDoseMg}
+              />
+            </div>
 
-            <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
+            <div
+              data-tour="recent"
+              className="bg-slate-900 rounded-xl p-6 border border-slate-800"
+            >
               <h2 className="text-white font-semibold mb-4">Recent Doses</h2>
               {recentLogs.length === 0 ? (
                 <p className="text-slate-500 text-sm">No doses logged yet.</p>
