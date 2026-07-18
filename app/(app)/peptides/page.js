@@ -32,6 +32,7 @@ import {
   analyzeStack,
   searchEntries,
 } from "../../lib/encyclopedia";
+import CommunityStacks from "../../components/CommunityStacks";
 
 // Tailwind classes per evidence-tier color (kept explicit so
 // Tailwind's compiler can see every class name).
@@ -752,6 +753,21 @@ export default function EncyclopediaPage() {
   }
 
   // =========================================================
+  // COMMUNITY STACKS VIEW
+  // (must come BEFORE the goal view below, which is a catch-all
+  // for any mode that isn't "goals")
+  // =========================================================
+  if (mode === "community") {
+    return (
+      <div className="p-8 max-w-5xl space-y-6">
+        <Header />
+        <ModeTabs mode={mode} setMode={setMode} />
+        <CommunityStacks onOpenEntry={setOpenName} />
+      </div>
+    );
+  }
+
+  // =========================================================
   // A SPECIFIC GOAL VIEW
   // =========================================================
   if (mode !== "goals") {
@@ -865,8 +881,8 @@ function Header() {
     <div>
       <h1 className="text-2xl font-bold text-white">Peptide Encyclopedia</h1>
       <p className="text-slate-400 mt-1">
-        Browse by goal, search A–Z, check your stack, or read the mixing guide.
-        Reference information, not medical advice.
+        Browse by goal, search A–Z, check your stack, explore community stacks,
+        or read the mixing guide. Reference information, not medical advice.
       </p>
     </div>
   );
@@ -900,6 +916,13 @@ function ModeTabs({ mode, setMode }) {
         className={tab(mode === "stack")}
       >
         🧩 My stack
+      </button>
+      <button
+        type="button"
+        onClick={() => setMode("community")}
+        className={tab(mode === "community")}
+      >
+        👥 Community stacks
       </button>
       <button
         type="button"
