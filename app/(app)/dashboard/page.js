@@ -22,6 +22,7 @@ import MiniCalendar from "../../components/MiniCalendar";
 import OnboardingChecklist from "../../components/OnboardingChecklist";
 import { isDoseDay, toDateString, dateFromString, doseOnDate } from "../../lib/schedule-helpers";
 import OnboardingModal from "../../components/OnboardingModal";
+import PageTour from "../../components/PageTour";
 const LOW_STOCK_PERCENT = 20;
 
 // ---------------- icons (cohesive line set, replaces emoji) ----------------
@@ -194,6 +195,10 @@ export default function Dashboard() {
   const [userId, setUserId] = useState(null);
   const [firstName, setFirstName] = useState("there");
   const [usesPeptides, setUsesPeptides] = useState(true);
+  // The tour only auto-starts once the first-run goals modal is out of the
+  // way, so the two never fight for the screen. (New users get the tour when
+  // the modal finishes and fires "pt:start-tour".)
+  const [onboardingDone, setOnboardingDone] = useState(false);
 
   const [doses, setDoses] = useState([]); // last 90 days, newest first
   const [recentWeights, setRecentWeights] = useState([]); // last 90 days
@@ -270,7 +275,7 @@ export default function Dashboard() {
   async function fetchProfileMode(uid) {
     const { data, error: profileError } = await supabase
       .from("profiles")
-      .select("uses_peptides")
+      .select("uses_peptides, onboarding_completed")
       .eq("id", uid)
       .single();
 
@@ -278,8 +283,10 @@ export default function Dashboard() {
       // Column missing or row missing → default to peptide mode.
       console.warn("Profile mode unavailable, defaulting:", profileError.message);
       setUsesPeptides(true);
+      setOnboardingDone(true); // don't block the tour on a failed read
     } else {
       setUsesPeptides(data?.uses_peptides ?? true);
+      setOnboardingDone(Boolean(data?.onboarding_completed));
     }
   }
 
@@ -680,6 +687,49 @@ export default function Dashboard() {
       {/* ---------- first-run goals pop-up (overlay; self-gating) ---------- */}
       <OnboardingModal />
 
+      {/* ---------- guided tour of this page ---------- */}
+      <PageTour
+        tourKey="dashboard"
+        autoStart={onboardingDone}
+        steps={[
+          {
+            target: '[data-tour="quick-log"]',
+            title: "Log a dose in seconds",
+            body: "The fastest way to record a dose without leaving this page. It saves the dose and deducts it from your inventory automatically.",
+          },
+          {
+            target: '[data-tour="streak"]',
+            title: "Your streak",
+            body: "Counts every day you log anything — a dose, a weigh-in, a photo. It stays alive until midnight, and turns amber when you haven't logged yet today.",
+          },
+          {
+            target: '[data-tour="weight"]',
+            title: "Weight at a glance",
+            body: "Your latest weigh-in and how far you've moved since your very first entry. Tap it to open Progress and see the full chart.",
+          },
+          {
+            target: '[data-tour="last-dose"]',
+            title: "What you took last",
+            body: "Shows your most recent dose and when it was, so you never have to wonder whether you already dosed today. Tap to open your full log.",
+          },
+          {
+            target: '[data-tour="inventory"]',
+            title: "Your stock at a glance",
+            body: "Shows your lowest-stock peptide and turns red when anything drops to 20% or less — so you reorder before you run out.",
+          },
+          {
+            target: '[data-tour="schedule"]',
+            title: "What's coming up",
+            body: "Once you save a protocol in the Planner, your dose days appear here — including the exact dose for that day if you're titrating.",
+          },
+          {
+            target: '[data-tour="activity"]',
+            title: "Everything in one feed",
+            body: "Doses, weigh-ins, measurements, photos and lab results together, newest first. That's the tour — you can always replay it from the checklist.",
+          },
+        ]}
+      />
+
       {/* ---------- greeting header ---------- */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -704,6 +754,7 @@ export default function Dashboard() {
         {usesPeptides && (
           <button
             type="button"
+            data-tour="quick-log"
             onClick={() => setQuickOpen(true)}
             className="inline-flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-emerald-950 font-semibold text-sm px-4 h-10 rounded-lg transition-colors"
           >
@@ -740,6 +791,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* streak — both modes */}
         <div
+          data-tour="streak"
           className={`bg-slate-900 border rounded-xl p-5 ${
             streakState === "active"
               ? "border-emerald-500/40"
@@ -782,6 +834,7 @@ export default function Dashboard() {
         {/* current weight — both modes (links to Progress) */}
         <Link
           href="/progress"
+          data-tour="weight"
           className="block bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-colors"
         >
           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
@@ -823,6 +876,7 @@ export default function Dashboard() {
             {/* last dose — peptide mode (links to Log) */}
             <Link
               href="/log"
+              data-tour="last-dose"
               className="block bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-colors"
             >
               <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
@@ -851,6 +905,7 @@ export default function Dashboard() {
             {/* inventory — peptide mode (links to Inventory) */}
             <Link
               href="/inventory"
+              data-tour="inventory"
               className={`block bg-slate-900 border rounded-xl p-5 hover:border-slate-700 transition-colors ${
                 lowStockItems.length > 0
                   ? "border-red-500/40"
@@ -918,7 +973,10 @@ export default function Dashboard() {
 
       {/* ---------- schedule this month (peptide mode) ---------- */}
       {usesPeptides && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <div
+          data-tour="schedule"
+          className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+        >
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base font-semibold text-white flex items-center gap-2">
               <Icon name="calendar" className="w-[18px] h-[18px] text-slate-400" />
@@ -995,7 +1053,10 @@ export default function Dashboard() {
       )}
 
       {/* ---------- recent activity (collapsible) ---------- */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+      <div
+        data-tour="activity"
+        className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+      >
         <button
           type="button"
           onClick={() => setActivityOpen((open) => !open)}
