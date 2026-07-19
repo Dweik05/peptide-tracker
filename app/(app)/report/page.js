@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { isDoseDay } from "../../lib/schedule-helpers";
 import ShareManager from "../../components/ShareManager";
+import PageTour from "../../components/PageTour";
 // ---------------- date helpers (local-timezone safe) ----------------
 function dateKeyFromDate(d) {
   const y = d.getFullYear();
@@ -89,9 +90,9 @@ function describeSchedule(s) {
 }
 
 // ---------------- small presentational components ----------------
-function Section({ title, children }) {
+function Section({ title, children, tour }) {
   return (
-    <section className="mt-6 break-inside-avoid">
+    <section className="mt-6 break-inside-avoid" data-tour={tour}>
       <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200 pb-1 mb-3">
         {title}
       </h3>
@@ -510,6 +511,33 @@ export default function Report() {
 
   return (
     <div className="p-6 md:p-8">
+      {/* ---------- guided tour of this page ---------- */}
+      <PageTour
+        tourKey="report"
+        steps={[
+          {
+            target: "#print-area",
+            title: "A summary built for your doctor",
+            body: "Everything you've tracked, pulled into one clean document: your current protocols, adherence, weight and body composition, lab results, and any side effects you've logged.",
+          },
+          {
+            target: '[data-tour="adherence"]',
+            title: "The number they'll care about",
+            body: "How many of your scheduled doses you actually logged, overall and per peptide. A dose counts as taken if you logged a matching one that day.",
+          },
+          {
+            target: '[data-tour="actions"]',
+            title: "Saving it as a PDF",
+            body: "Hit Print, then choose \"Save as PDF\" as the destination — only the white document prints, none of the app around it. Untick \"Include charts\" if you'd rather keep it to one page.",
+          },
+          {
+            target: '[data-tour="share"]',
+            title: "Or send a link instead",
+            body: "Create a private, read-only link your provider can open in a browser — no account needed on their end. You can revoke it whenever you want.",
+          },
+        ]}
+      />
+
       {/* print isolation: hide everything except the document sheet */}
       <style>{`
         @media print {
@@ -530,7 +558,10 @@ export default function Report() {
       `}</style>
 
       {/* action bar — hidden when printing */}
-      <div className="max-w-[820px] mx-auto mb-5 flex items-start justify-between gap-4 print:hidden">
+      <div
+        data-tour="actions"
+        className="max-w-[820px] mx-auto mb-5 flex items-start justify-between gap-4 print:hidden"
+      >
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-white">
             Doctor report
@@ -560,7 +591,9 @@ export default function Report() {
       </div>
 
       {/* share manager — hidden when printing */}
-      <ShareManager />
+      <div data-tour="share">
+        <ShareManager />
+      </div>
 
       {/* the document */}
       <div
@@ -626,7 +659,7 @@ export default function Report() {
         </Section>
 
         {/* adherence */}
-        <Section title="Protocol adherence">
+        <Section title="Protocol adherence" tour="adherence">
           {overallPct === null ? (
             <Empty>
               No scheduled doses have come due yet, so adherence isn&rsquo;t

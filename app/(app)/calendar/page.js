@@ -29,6 +29,7 @@ import {
   describeFrequency,
   doseOnDate,
 } from "../../lib/schedule-helpers";
+import PageTour from "../../components/PageTour";
 
 // ---------------- icons (cohesive line set, replaces emoji) ----------------
 function Icon({ name, className = "w-4 h-4" }) {
@@ -331,6 +332,38 @@ export default function CalendarPage() {
 
   return (
     <div className="p-6 md:p-8 max-w-6xl space-y-6">
+      {/* ---------- guided tour of this page ---------- */}
+      <PageTour
+        tourKey="calendar"
+        steps={[
+          {
+            target: '[data-tour="grid"]',
+            title: "Your month at a glance",
+            body: "Every day shows small chips for what's on it. Tap any day to see the full detail beside the calendar.",
+          },
+          {
+            target: '[data-tour="legend"]',
+            title: "Two kinds of chip",
+            body: "Green chips are doses you're scheduled to take. Blue chips are doses you actually logged. Seeing them side by side is how you spot a missed day.",
+          },
+          {
+            target: '[data-tour="month-nav"]',
+            title: "Moving around",
+            body: "Step back and forward through months to check past adherence or see what's coming. \"Today\" jumps you straight back.",
+          },
+          {
+            target: '[data-tour="day-detail"]',
+            title: "One day, in full",
+            body: "The day you tapped, spelled out — what was scheduled (with the exact dose for that date if you're titrating) and what you logged, including the time.",
+          },
+          {
+            target: '[data-tour="schedules"]',
+            title: "Managing schedules",
+            body: "Pause a schedule to hide it from the calendar and stop its emails without losing it, toggle email reminders per schedule, or delete one. Deleting a schedule never touches the doses you've already logged.",
+          },
+        ]}
+      />
+
       {/* header */}
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-white">
@@ -346,7 +379,10 @@ export default function CalendarPage() {
         {/* ---------- LEFT (2 cols): the month grid ---------- */}
         <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-6">
           {/* month navigation */}
-          <div className="flex items-center justify-between mb-4">
+          <div
+            data-tour="month-nav"
+            className="flex items-center justify-between mb-4"
+          >
             <h2 className="text-lg font-semibold text-white">{monthLabel}</h2>
             <div className="flex gap-2">
               <button
@@ -378,6 +414,7 @@ export default function CalendarPage() {
           {/* the wall-calendar grid — layout styles are INLINE on
               purpose (see header comment) */}
           <div
+            data-tour="grid"
             className="border border-slate-700 rounded-lg"
             style={{ overflow: "hidden" }}
           >
@@ -467,7 +504,10 @@ export default function CalendarPage() {
           </div>
 
           {/* legend */}
-          <div className="flex flex-wrap gap-4 mt-4 text-xs text-slate-400">
+          <div
+            data-tour="legend"
+            className="flex flex-wrap gap-4 mt-4 text-xs text-slate-400"
+          >
             <span className="flex items-center gap-1.5">
               <span style={{ ...chipStyle("sched"), width: "auto" }}>Aa</span>
               Scheduled dose
@@ -494,7 +534,10 @@ export default function CalendarPage() {
         {/* ---------- RIGHT: day detail + schedule management ---------- */}
         <div className="space-y-6">
           {/* day detail */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+          <div
+            data-tour="day-detail"
+            className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+          >
             <h2 className="text-lg font-semibold text-white mb-1">
               {selectedDate ? formatLongDate(selectedDate) : "Pick a day"}
             </h2>
@@ -559,7 +602,10 @@ export default function CalendarPage() {
           </div>
 
           {/* schedule management */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+          <div
+            data-tour="schedules"
+            className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+          >
             <h2 className="text-lg font-semibold text-white mb-3">
               Your schedules
             </h2>

@@ -29,6 +29,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { hasPremiumAccess } from "../../lib/access";
+import PageTour from "../../components/PageTour";
 import {
   ResponsiveContainer,
   LineChart,
@@ -905,6 +906,53 @@ async function fetchProfilePrefs(uid) {
     // If this page looks "double padded" compared to your dashboard,
     // your layout.js already adds padding — change p-8 below to p-0.
     <div className="p-6 md:p-8 max-w-6xl space-y-6">
+      {/* ---------- guided tour of this page ---------- */}
+      <PageTour
+        tourKey="progress"
+        steps={[
+          {
+            target: '[data-tour="weighin"]',
+            title: "Your weigh-in nudge",
+            body: "Tells you how long it's been since your last weigh-in and turns amber past a week. Tick the box and we'll email you a weekly reminder.",
+          },
+          {
+            target: '[data-tour="log-weight"]',
+            title: "Logging a weight",
+            body: "Pick lbs, kg or stone — you can switch any time and older entries convert automatically. Body fat and notes are optional, and you can backdate an entry.",
+          },
+          {
+            target: '[data-tour="summary"]',
+            title: "Where you started, where you are",
+            body: "Your latest weight, your very first entry, and the total change between them.",
+          },
+          {
+            target: '[data-tour="chart"]',
+            title: "The trend",
+            body: "A real time axis, so a three-week gap actually looks like three weeks. Switch the range to zoom from the last 7 days out to all time.",
+          },
+          {
+            target: '[data-tour="photo-toggle"]',
+            title: "Photo days on the chart",
+            body: "Toggles amber dashed lines onto the graph marking every day you took a progress photo — so you can see exactly what your weight was doing when a photo was taken.",
+          },
+          {
+            target: '[data-tour="measurements"]',
+            title: "Measurements catch what the scale misses",
+            body: "Waist, hips, chest, arms and thighs — all optional. Useful when the scale stalls but you're still changing shape. There's a short how-to-measure guide inside.",
+          },
+          {
+            target: '[data-tour="photos"]',
+            title: "Private progress photos",
+            body: "Stored privately to your account — nobody else can see them. The free plan includes 5; premium is unlimited.",
+          },
+          {
+            target: '[data-tour="compare"]',
+            title: "Before and after",
+            body: "Pick any two photos and see them side by side, each captioned with the weigh-in closest to that date, plus the change between them.",
+          },
+        ]}
+      />
+
       {/* ---------- header ---------- */}
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-white">Progress</h1>
@@ -915,6 +963,7 @@ async function fetchProfilePrefs(uid) {
 
       {/* ---------- weekly weigh-in nudge + email opt-in ---------- */}
       <div
+        data-tour="weighin"
         className={`bg-slate-900 rounded-xl p-6 border ${
           weighinOverdue ? "border-amber-500/40" : "border-slate-800"
         }`}
@@ -947,7 +996,7 @@ async function fetchProfilePrefs(uid) {
 
       {/* ---------- summary cards (only once there's data) ---------- */}
       {newest && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div data-tour="summary" className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
               Current weight
@@ -992,7 +1041,10 @@ async function fetchProfilePrefs(uid) {
 
       {/* ---------- weight-over-time chart ---------- */}
       {newest && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <div
+          data-tour="chart"
+          className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+        >
           <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
             <h2 className="text-lg font-semibold text-white">
               Weight over time
@@ -1018,6 +1070,7 @@ async function fetchProfilePrefs(uid) {
               {photos.length > 0 && (
                 <button
                   type="button"
+                  data-tour="photo-toggle"
                   onClick={() => setShowPhotoMarkers((previous) => !previous)}
                   title="Show photo days on the chart"
                   className={
@@ -1123,7 +1176,10 @@ async function fetchProfilePrefs(uid) {
         {/* ---------- LEFT COLUMN: weight ---------- */}
         <div className="space-y-6">
           {/* log weight form */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+          <div
+            data-tour="log-weight"
+            className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+          >
             <h2 className="text-lg font-semibold text-white mb-4">
               Log weight
             </h2>
@@ -1323,7 +1379,10 @@ async function fetchProfilePrefs(uid) {
         {/* ---------- RIGHT COLUMN: measurements + photos ---------- */}
         <div className="space-y-6">
           {/* measurements form — optional, opens on click */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+          <div
+            data-tour="measurements"
+            className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+          >
             <button
               type="button"
               onClick={() => setShowMeasurementsForm((previous) => !previous)}
@@ -1560,7 +1619,10 @@ async function fetchProfilePrefs(uid) {
           </div>
 
           {/* progress photos — drop-down (moved up here from the bottom) */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+          <div
+            data-tour="photos"
+            className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+          >
             <button
               type="button"
               onClick={() => setShowPhotos((previous) => !previous)}
@@ -1736,7 +1798,10 @@ async function fetchProfilePrefs(uid) {
           </div>
 
           {/* Day 16: compare photos — drop-down */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+          <div
+            data-tour="compare"
+            className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+          >
             <button
               type="button"
               onClick={() => setShowCompare((previous) => !previous)}

@@ -16,6 +16,7 @@ import { supabase } from "../../lib/supabase";
 import { PEPTIDES, VIAL_SIZES, convertAmount } from "../../lib/peptides";
 import { doseOnDate } from "../../lib/schedule-helpers";
 import DrawCalculator from "../../components/DrawCalculator";
+import PageTour from "../../components/PageTour";
 
 // ---------------- icons (cohesive line set, replaces emoji) ----------------
 function Icon({ name, className = "w-4 h-4" }) {
@@ -683,6 +684,53 @@ export default function PlannerPage() {
 
   return (
     <div className="p-6 md:p-8 max-w-6xl space-y-6">
+      {/* ---------- guided tour of this page ---------- */}
+      <PageTour
+        tourKey="planner"
+        steps={[
+          {
+            target: '[data-tour="frequency"]',
+            title: "How often you'll dose",
+            body: "Pick a pattern and the day chips fill in to match — tap any day to adjust. Daily and every-other-day count from your start date instead.",
+          },
+          {
+            target: '[data-tour="dose-mode"]',
+            title: "Flat, by phase, or by week",
+            body: "Flat is the same dose every time. By phase steps it up in blocks — e.g. 2.5mg for 4 weeks, then 5mg for 4. By week gives you a box per week for full control. Use phases or weeks if you're titrating.",
+          },
+          {
+            target: '[data-tour="vial-cost"]',
+            title: "What you're buying",
+            body: "Picking a peptide fills in its common vial size automatically. Add what you pay per vial and the planner works out the total cost of the protocol.",
+          },
+          {
+            target: '[data-tour="plan"]',
+            title: "The math, done for you",
+            body: "Everything on the left becomes a plan here — total doses, how much peptide you'll need, how many vials to buy, and what it'll cost.",
+          },
+          {
+            target: '[data-tour="coverage"]',
+            title: "How far your stock gets you",
+            body: "Compares the plan against what's actually in your inventory, so you know how many doses you're covered for and roughly when you'll need to reorder.",
+          },
+          {
+            target: '[data-tour="save"]',
+            title: "Schedule vs. draft",
+            body: "Saving a schedule puts the dose days on your calendar and can email you reminders. It doesn't log doses or touch inventory. A draft saves the plan privately — no calendar, no reminders.",
+          },
+          {
+            target: '[data-tour="draw-calc"]',
+            title: "Mixing math",
+            body: "Your vial size and flat dose carry down automatically. Add how much water you'd mix with and it tells you the units to draw — handy for sanity-checking a protocol before you commit.",
+          },
+          {
+            target: '[data-tour="drafts"]',
+            title: "Your saved drafts",
+            body: "Load a draft back into the form to tweak it, or hit Activate to turn it into a live schedule. Nothing here affects your calendar until you activate it.",
+          },
+        ]}
+      />
+
       {/* header */}
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-white">
@@ -722,7 +770,7 @@ export default function PlannerPage() {
             </select>
           </div>
 
-          <div>
+          <div data-tour="frequency">
             <label className="block text-sm text-slate-400 mb-1">
               How often
             </label>
@@ -808,7 +856,7 @@ export default function PlannerPage() {
           {/* ---------- dosing ---------- */}
           <div className="pt-2 border-t border-slate-800 space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <div>
+              <div data-tour="dose-mode">
                 <label className="block text-sm text-slate-400 mb-1">
                   Dosing
                 </label>
@@ -979,7 +1027,7 @@ export default function PlannerPage() {
           </div>
 
           {/* vial size + cost */}
-          <div className="pt-2 border-t border-slate-800">
+          <div data-tour="vial-cost" className="pt-2 border-t border-slate-800">
             <p className="text-sm text-slate-400 mb-2">
               Vial size to plan around
             </p>
@@ -1053,7 +1101,10 @@ export default function PlannerPage() {
 
         {/* ---------- RIGHT: results ---------- */}
         <div className="space-y-6">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+          <div
+            data-tour="plan"
+            className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+          >
             <h2 className="text-lg font-semibold text-white mb-4">The plan</h2>
 
             {!validProtocol ? (
@@ -1112,7 +1163,10 @@ export default function PlannerPage() {
                   />
                 </div>
 
-                <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+                <div
+                  data-tour="coverage"
+                  className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
+                >
                   {!plan.hasInventory ? (
                     <p className="text-sm text-slate-400">
                       You're not tracking{" "}
@@ -1176,7 +1230,10 @@ export default function PlannerPage() {
                 </div>
 
                 {/* save as a schedule */}
-                <div className="pt-4 border-t border-slate-800 space-y-3">
+                <div
+                  data-tour="save"
+                  className="pt-4 border-t border-slate-800 space-y-3"
+                >
                   <h3 className="text-sm font-semibold text-white">
                     Save as a schedule
                   </h3>
@@ -1267,17 +1324,22 @@ export default function PlannerPage() {
           </div>
 
           {/* draw calculator (shared component) */}
-          <DrawCalculator
-            suggestedVialMg={vialUnit === "mg" ? vialSize : undefined}
-            suggestedDoseMg={
-              doseMode === "flat" && doseUnit === "mg" ? dose : undefined
-            }
-          />
+          <div data-tour="draw-calc">
+            <DrawCalculator
+              suggestedVialMg={vialUnit === "mg" ? vialSize : undefined}
+              suggestedDoseMg={
+                doseMode === "flat" && doseUnit === "mg" ? dose : undefined
+              }
+            />
+          </div>
         </div>
       </div>
 
       {/* ---------- DRAFTS (full width, always visible) ---------- */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+      <div
+        data-tour="drafts"
+        className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+      >
         <h2 className="text-lg font-semibold text-white mb-1">Your drafts</h2>
         <p className="text-sm text-slate-500 mb-4">
           Saved protocols you haven't committed to. They don't appear on the

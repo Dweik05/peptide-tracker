@@ -33,6 +33,7 @@ import {
   searchEntries,
 } from "../../lib/encyclopedia";
 import CommunityStacks from "../../components/CommunityStacks";
+import PageTour from "../../components/PageTour";
 
 // Tailwind classes per evidence-tier color (kept explicit so
 // Tailwind's compiler can see every class name).
@@ -844,10 +845,50 @@ export default function EncyclopediaPage() {
   // =========================================================
   return (
     <div className="p-8 max-w-5xl space-y-6">
+      {/* ---------- guided tour of this page ---------- */}
+      <PageTour
+        tourKey="encyclopedia"
+        steps={[
+          {
+            target: '[data-tour="goals-grid"]',
+            title: "Start with what you're after",
+            body: "Pick a goal and you'll see the peptides associated with it, sorted by how much real research backs them up.",
+          },
+          {
+            target: '[data-tour="tab-az"]',
+            title: "Or look something up directly",
+            body: "Search all 90+ entries by name, nickname, or what they're used for — handy when someone mentions a compound you've never heard of.",
+          },
+          {
+            target: '[data-tour="tab-stack"]',
+            title: "What your own stack targets",
+            body: "Pre-filled from your recent doses and inventory. It shows the goals your combination covers — and you can toggle peptides on and off to preview a different one.",
+          },
+          {
+            target: '[data-tour="tab-community"]',
+            title: "The stacks people talk about",
+            body: "Wolverine, Glow, KLOW, CagriSema and the rest — what each one actually contains and what it's associated with. Tap any peptide in a stack to read its full entry.",
+          },
+          {
+            target: '[data-tour="tab-guide"]',
+            title: "How to mix and store",
+            body: "A plain-language guide to reconstituting freeze-dried peptides — supplies, technique, concentration math, storage, and when to throw a vial out.",
+          },
+          {
+            target: '[data-tour="disclaimer"]',
+            title: "What the evidence badges mean",
+            body: "Every entry carries a tier, from \"Approved for this use\" down to \"Animal / lab research only.\" It tells you how much human research exists — not whether something is safe or right for you.",
+          },
+        ]}
+      />
+
       <Header />
       <ModeTabs mode={mode} setMode={setMode} />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div
+        data-tour="goals-grid"
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+      >
         {GOALS.map((goal) => {
           const count = entriesForGoal(goal.key).length;
           return (
@@ -905,6 +946,7 @@ function ModeTabs({ mode, setMode }) {
       </button>
       <button
         type="button"
+        data-tour="tab-az"
         onClick={() => setMode("az")}
         className={tab(mode === "az")}
       >
@@ -912,6 +954,7 @@ function ModeTabs({ mode, setMode }) {
       </button>
       <button
         type="button"
+        data-tour="tab-stack"
         onClick={() => setMode("stack")}
         className={tab(mode === "stack")}
       >
@@ -919,6 +962,7 @@ function ModeTabs({ mode, setMode }) {
       </button>
       <button
         type="button"
+        data-tour="tab-community"
         onClick={() => setMode("community")}
         className={tab(mode === "community")}
       >
@@ -926,6 +970,7 @@ function ModeTabs({ mode, setMode }) {
       </button>
       <button
         type="button"
+        data-tour="tab-guide"
         onClick={() => setMode("guide")}
         className={tab(mode === "guide")}
       >
@@ -965,7 +1010,10 @@ function Section({ title, children }) {
 
 function Disclaimer() {
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+    <div
+      data-tour="disclaimer"
+      className="bg-slate-900 border border-slate-800 rounded-xl p-5"
+    >
       <p className="text-sm text-slate-400">
         <span className="text-amber-400 font-semibold">
           Not medical advice.
