@@ -26,6 +26,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../lib/supabase";
 import { isDoseDay, doseOnDate } from "../../lib/schedule-helpers";
+import PageTour from "../../components/PageTour";
 
 // ---------------- icons (same line set as the rest of the app) ----------------
 function Icon({ name, className = "w-4 h-4" }) {
@@ -1313,6 +1314,43 @@ export default function Insights() {
 
   return (
     <div className="p-6 md:p-8 max-w-6xl space-y-6">
+      {/* ---------- guided tour of this page ---------- */}
+      <PageTour
+        tourKey="insights"
+        steps={[
+          {
+            target: '[data-tour="adherence"]',
+            title: "How consistent you've been",
+            body: "Compares your saved schedule against the doses you actually logged. It turns amber below 90% and red below 70%, and there's a per-protocol breakdown plus your recent misses underneath.",
+          },
+          {
+            target: '[data-tour="rotation"]',
+            title: "Are you rotating?",
+            body: "Watches your recent injection sites and warns you if the last three or more doses all went to the same spot — the thing that leads to lumps and scar tissue.",
+          },
+          {
+            target: '[data-tour="cost"]',
+            title: "What it's costing you",
+            body: "Total invested, monthly burn, and cost per dose. The \"supply\" estimate simulates your actual schedule forward — so if you're titrating up, it accounts for the ramp instead of assuming today's dose forever.",
+          },
+          {
+            target: '[data-tour="plateau"]',
+            title: "Stalled or still moving?",
+            body: "Looks at the last four weeks and tells you whether your weight has genuinely flattened out or is still trending. A plateau isn't good or bad — it's just useful to know which one you're in.",
+          },
+          {
+            target: '[data-tour="outcomes"]',
+            title: "Consistency against results",
+            body: "Your weight plotted with protocol start dates, each point colored by how consistent you were leading up to it. It compares your higher- and lower-consistency stretches — but only once there's enough data, and it never claims one caused the other.",
+          },
+          {
+            target: '[data-tour="severity-dose"]',
+            title: "Do side effects track your dose?",
+            body: "Compares symptom severity on your higher- vs lower-dose days. It's deliberately strict — it only counts days where you dosed a single peptide, so overlapping protocols can't muddy the comparison.",
+          },
+        ]}
+      />
+
       {/* header */}
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-white">
@@ -1361,7 +1399,10 @@ export default function Insights() {
 
       {hasActive && hasScored && (
         <>
-          <div className={`bg-slate-900 border rounded-xl p-6 ${headlineBorder}`}>
+          <div
+            data-tour="adherence"
+            className={`bg-slate-900 border rounded-xl p-6 ${headlineBorder}`}
+          >
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold text-white flex items-center gap-2">
                 <Icon
@@ -1471,7 +1512,10 @@ export default function Insights() {
 
       {/* ========== INJECTION-SITE ROTATION ========== */}
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+      <div
+        data-tour="rotation"
+        className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+      >
         <h2 className="text-base font-semibold text-white flex items-center gap-2">
           <Icon name="rotate" className="w-[18px] h-[18px] text-slate-400" />
           Injection-site rotation
@@ -1582,7 +1626,10 @@ export default function Insights() {
 
       {/* ========== COST & SPEND ========== */}
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+      <div
+        data-tour="cost"
+        className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+      >
         <h2 className="text-base font-semibold text-white flex items-center gap-2">
           <Icon name="coin" className="w-[18px] h-[18px] text-slate-400" />
           Cost &amp; spend
@@ -1765,7 +1812,10 @@ export default function Insights() {
 
       {/* ========== PLATEAU CHECK ========== */}
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+      <div
+        data-tour="plateau"
+        className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+      >
         <h2 className="text-base font-semibold text-white flex items-center gap-2">
           <Icon name="plateau" className="w-[18px] h-[18px] text-slate-400" />
           Plateau check
@@ -2048,7 +2098,10 @@ export default function Insights() {
 
       {/* ========== ADHERENCE × OUTCOMES ========== */}
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+      <div
+        data-tour="outcomes"
+        className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+      >
         <h2 className="text-base font-semibold text-white flex items-center gap-2">
           <Icon name="trend" className="w-[18px] h-[18px] text-slate-400" />
           Adherence &amp; outcomes
@@ -2403,7 +2456,10 @@ export default function Insights() {
 
       {/* ========== SIDE-EFFECT SEVERITY vs DOSE ========== */}
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+      <div
+        data-tour="severity-dose"
+        className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+      >
         <h2 className="text-base font-semibold text-white flex items-center gap-2">
           <Icon name="pulse" className="w-[18px] h-[18px] text-slate-400" />
           Severity vs dose
