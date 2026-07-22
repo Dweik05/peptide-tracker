@@ -9,6 +9,9 @@
 // logic (data fetching, streak math, inventory, the titration-
 // aware schedule, the quick-log save, peptide/non-peptide modes)
 // is unchanged. Only the markup changed.
+//
+// v3.1 — added the "?" replay button next to the greeting, and
+// updated the closing tour step to point at it. No logic changes.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -23,6 +26,7 @@ import OnboardingChecklist from "../../components/OnboardingChecklist";
 import { isDoseDay, toDateString, dateFromString, doseOnDate } from "../../lib/schedule-helpers";
 import OnboardingModal from "../../components/OnboardingModal";
 import PageTour from "../../components/PageTour";
+import TourHelpButton from "../../components/TourHelpButton";
 const LOW_STOCK_PERCENT = 20;
 
 // ---------------- icons (cohesive line set, replaces emoji) ----------------
@@ -725,7 +729,7 @@ export default function Dashboard() {
           {
             target: '[data-tour="activity"]',
             title: "Everything in one feed",
-            body: "Doses, weigh-ins, measurements, photos and lab results together, newest first. That's the tour — you can always replay it from the checklist.",
+            body: "Doses, weigh-ins, measurements, photos and lab results together, newest first. That's the tour — tap the ? next to your name any time to run through it again.",
           },
         ]}
       />
@@ -733,9 +737,10 @@ export default function Dashboard() {
       {/* ---------- greeting header ---------- */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white">
-            {greeting}, {firstName}
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-semibold tracking-tight text-white">{greeting}, {firstName}</h1>
+            <TourHelpButton />
+          </div>
           <p className="text-sm text-slate-400 mt-1">
             {now.toLocaleDateString(undefined, {
               weekday: "long",
