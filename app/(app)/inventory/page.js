@@ -17,6 +17,8 @@
 //
 // Rows with no vial_size (legacy) fall back to a simple remaining/total view.
 // All other logic (fetch, add, delete, dose-history stats) is unchanged.
+//
+// v5.1 — added the "?" tour replay button beside the heading. No logic changes.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -30,6 +32,7 @@ import {
 } from "../../lib/peptides";
 import StackSummary from "../../components/StackSummary";
 import PageTour from "../../components/PageTour";
+import TourHelpButton from "../../components/TourHelpButton";
 
 const LOW_STOCK_PERCENT = 20;
 const MAX_OPEN_VIALS = 3;
@@ -849,9 +852,10 @@ export default function InventoryPage() {
 
       {/* header */}
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-white">
-          Inventory
-        </h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-semibold tracking-tight text-white">Inventory</h1>
+          <TourHelpButton />
+        </div>
         <p className="text-slate-400 mt-1">
           Know exactly how much you have left and when to reorder.
         </p>

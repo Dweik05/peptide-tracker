@@ -2,6 +2,10 @@
 
 // ============================================================
 // DOCTOR REPORT (Day 36) ...
+//
+// v1.1 — added the "?" tour replay button beside the heading.
+// It lives in the action bar, which is already print:hidden, so
+// it never appears in the printed PDF. No logic changes.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -10,6 +14,7 @@ import { supabase } from "../../lib/supabase";
 import { isDoseDay } from "../../lib/schedule-helpers";
 import ShareManager from "../../components/ShareManager";
 import PageTour from "../../components/PageTour";
+import TourHelpButton from "../../components/TourHelpButton";
 // ---------------- date helpers (local-timezone safe) ----------------
 function dateKeyFromDate(d) {
   const y = d.getFullYear();
@@ -563,9 +568,10 @@ export default function Report() {
         className="max-w-[820px] mx-auto mb-5 flex items-start justify-between gap-4 print:hidden"
       >
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white">
-            Doctor report
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-semibold tracking-tight text-white">Doctor report</h1>
+            <TourHelpButton />
+          </div>
           <p className="text-sm text-slate-400 mt-1">
             A printable summary of your protocol history. Click the button, then
             choose &ldquo;Save as PDF&rdquo; as the destination.

@@ -31,6 +31,9 @@
 // emerald-filled buttons use dark text. No logic changed.
 //
 // BODY_POINTS moved to app/lib/sites.js — this page imports it.
+//
+// v2.1 — added the "?" tour replay button beside the heading.
+// No logic changes.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -49,6 +52,7 @@ import StackSummary from "../../components/StackSummary";
 import { hasPremiumAccess } from "../../lib/access";
 import DrawCalculator from "../../components/DrawCalculator";
 import PageTour from "../../components/PageTour";
+import TourHelpButton from "../../components/TourHelpButton";
 
 // ---------------- icons (cohesive line set, replaces emoji) ----------------
 function Icon({ name, className = "w-4 h-4" }) {
@@ -680,7 +684,10 @@ export default function Log() {
       />
 
       <div className="max-w-6xl mx-auto">
-        <h1 className="text-2xl font-semibold tracking-tight text-white mb-2">Log a Dose</h1>
+        <div className="flex items-center gap-2 mb-2">
+          <h1 className="text-2xl font-semibold tracking-tight text-white">Log a Dose</h1>
+          <TourHelpButton />
+        </div>
         <p className="text-slate-600 text-xs mb-6">{sessionDebug}</p>
 
         {error && (

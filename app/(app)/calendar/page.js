@@ -15,6 +15,9 @@
 // As in v4, all layout-critical styles are INLINE on purpose so a
 // stale Tailwind build can't break the grid. Do NOT convert them
 // to Tailwind classes.
+//
+// v5.1 — added the "?" tour replay button beside the heading.
+// No logic changes.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -30,6 +33,7 @@ import {
   doseOnDate,
 } from "../../lib/schedule-helpers";
 import PageTour from "../../components/PageTour";
+import TourHelpButton from "../../components/TourHelpButton";
 
 // ---------------- icons (cohesive line set, replaces emoji) ----------------
 function Icon({ name, className = "w-4 h-4" }) {
@@ -366,9 +370,10 @@ export default function CalendarPage() {
 
       {/* header */}
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-white">
-          Calendar
-        </h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-semibold tracking-tight text-white">Calendar</h1>
+          <TourHelpButton />
+        </div>
         <p className="text-slate-400 mt-1">
           Your saved schedules on a month view — scheduled days vs. what you
           actually logged.

@@ -8,6 +8,9 @@
 // text on the emerald buttons. All logic (flat / by-phase /
 // by-week titration, the math, drafts, the draw calculator) is
 // unchanged — only the markup changed.
+//
+// v4.1 — added the "?" tour replay button beside the heading.
+// No logic changes.
 // ============================================================
 
 import { useState, useEffect, useRef } from "react";
@@ -17,6 +20,7 @@ import { PEPTIDES, VIAL_SIZES, convertAmount } from "../../lib/peptides";
 import { doseOnDate } from "../../lib/schedule-helpers";
 import DrawCalculator from "../../components/DrawCalculator";
 import PageTour from "../../components/PageTour";
+import TourHelpButton from "../../components/TourHelpButton";
 
 // ---------------- icons (cohesive line set, replaces emoji) ----------------
 function Icon({ name, className = "w-4 h-4" }) {
@@ -733,9 +737,10 @@ export default function PlannerPage() {
 
       {/* header */}
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-white">
-          Protocol Planner
-        </h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-semibold tracking-tight text-white">Protocol Planner</h1>
+          <TourHelpButton />
+        </div>
         <p className="text-slate-400 mt-1">
           Enter a protocol — flat or titrated — and the app works out the
           supply, cost, and timing. Save it as a schedule, or keep it as a
